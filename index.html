@@ -75,6 +75,16 @@
 
         <hr class="section-divider-sm">
 
+<!-- Admin Option (Visible ONLY to "dallas") -->
+        <div id="adminSettingsSection" class="settings-section" style="display: none;">
+          <label><strong>admin panel</strong></label>
+          <p class="settings-desc">manage all registered accounts and groups</p>
+          <button class="btn btn-primary" style="width: 100%; margin-top: 8px;" onclick="openAdminModal()">open admin panel</button>
+          <hr class="section-divider-sm">
+        </div>
+
+        <hr class="section-divider-sm">
+
         <div class="settings-section">
           <label><strong>reset progress</strong></label>
           <p class="settings-desc">gets rid of all of your leaves, unlocked plants, and garden history!</p>
@@ -286,7 +296,7 @@
   <!-- PLANT PICKER MODAL -->
   <div id="plantPickerModal" class="modal-overlay" style="display: none;">
     <div class="modal-card">
-      <h3>select a Plant to Grow</h3>
+      <h3>select a plant to grow</h3>
       <div class="plant-grid-picker" id="pickerGrid"></div>
       <button class="btn btn-secondary" style="margin-top: 1rem; width: 100%;" onclick="closePlantPicker()">close</button>
     </div>
@@ -295,6 +305,27 @@
   <!-- Firebase Compatibility Libraries -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<!-- ADMIN DASHBOARD MODAL -->
+  <div id="adminModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card admin-modal-card">
+      <div class="modal-header">
+        <div>
+          <h3>admin dashboard</h3>
+          <p class="subtitle-text">master control for accounts and groups</p>
+        </div>
+        <button class="close-icon-btn" onclick="closeAdminModal()">✕</button>
+      </div>
+
+      <div class="admin-tab-toggle">
+        <button id="adminTabUsersBtn" class="filter-btn active" onclick="switchAdminTab('users')">users</button>
+        <button id="adminTabGroupsBtn" class="filter-btn" onclick="switchAdminTab('groups')">groups</button>
+      </div>
+
+      <div id="adminUsersList" class="admin-list-scroll"></div>
+      <div id="adminGroupsList" class="admin-list-scroll" style="display: none;"></div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

@@ -54,12 +54,12 @@ const CATALOG = [
   { id: 'pineapple-dog', name: 'pineapple dog', cost: 250, img: 'pineapple-dog.png' },
   { id: 'leek-duck', name: 'leek duck', cost: 250, img: 'leek-duck.png' },
   { id: 'apple-bat', name: 'apple bat', cost: 250, img: 'apple-bat.png' },
-  { id: 'tree-rex', name: 'tree-rex', cost: 250, img: 'tree-rex.png' },
+  { id: 'tree-rex', name: 'tree-rex', cost: 250, img: 'tree-rex.png' }
 ];
 
 let currentUser = localStorage.getItem('currentUser') || null;
 let leaves = 0;
-let leafBankSeconds = 0; // Cumulative seconds (60s = exactly 1 leaf)
+let leafBankSeconds = 0;
 let ownedPlants = ['sprout'];
 let selectedPlantId = 'sprout';
 let gardenHistory = [];
@@ -71,24 +71,20 @@ let currentGardenTimeframe = 'day';
 let currentStatsTimeframe = 'day';
 let focusChartInstance = null;
 
-// Firestore real-time unsubscribe listeners
 let unsubscribeUser = null;
 let unsubscribeGroups = null;
 
-// Notification Tracking to prevent duplicate alerts on page reload
 let knownGroupHistoryIds = new Set();
 let knownNotificationIds = new Set();
 let isInitialGroupLoad = true;
 let isInitialUserLoad = true;
 
-// Timer & WakeLock Variables
 let totalSeconds = 600;
 let remainingSeconds = 600;
 let timerInterval = null;
 let isFocusing = false;
 let wakeLockSentinel = null;
 
-// Grace Period & Audio Beep Variables
 let audioCtx = null;
 let gracePeriodTimeout = null;
 let graceBeepInterval = null;
@@ -234,13 +230,16 @@ function attachFirebaseListeners(username) {
     renderFriendsList();
   });
 
-  unsubscribeGroups = db.collection('groups')
-    .where('members', 'array-contains', username.toLowerCase())
-    .onSnapshot(snapshot => {
-      userGroups = [];
+  const userLower = username.toLowerCase();
+  unsubscribeGroups = db.collection('groups').onSnapshot(snapshot => {
+    userGroups = [];
 
-      snapshot.forEach(doc => {
-        const groupData = { id: doc.id, ...doc.data() };
+    snapshot.forEach(doc => {
+      const groupData = { id: doc.id, ...doc.data() };
+      const members = (groupData.members || []).map(m => String(m).toLowerCase());
+
+      // Match membership case-insensitively
+      if (members.includes(userLower)) {
         userGroups.push(groupData);
 
         const history = groupData.history || [];
@@ -254,7 +253,7 @@ function attachFirebaseListeners(username) {
             if (item.entryId && !knownGroupHistoryIds.has(item.entryId)) {
               knownGroupHistoryIds.add(item.entryId);
 
-              if (item.owner.toLowerCase() !== currentUser.toLowerCase()) {
+              if (item.owner && item.owner.toLowerCase() !== currentUser.toLowerCase()) {
                 const plantLabel = item.nickname || 'a plant';
                 if (item.status === 'grown') {
                   showToast('🌸', 'plant bloomed!', `${item.owner} successfully grew "${plantLabel}" in ${groupData.name}!`, 'grown');
@@ -265,16 +264,17 @@ function attachFirebaseListeners(username) {
             }
           });
         }
-      });
-
-      if (isInitialGroupLoad) isInitialGroupLoad = false;
-
-      renderGroupsList();
-      if (activeGroupId) {
-        const currentGroup = userGroups.find(g => g.id === activeGroupId);
-        if (currentGroup) renderGroupLeaderboardAndGarden(currentGroup);
       }
     });
+
+    if (isInitialGroupLoad) isInitialGroupLoad = false;
+
+    renderGroupsList();
+    if (activeGroupId) {
+      const currentGroup = userGroups.find(g => g.id === activeGroupId);
+      if (currentGroup) renderGroupLeaderboardAndGarden(currentGroup);
+    }
+  });
 }
 
 function showMainApp() {
@@ -304,6 +304,16 @@ function backToHome() {
 /* ================= SETTINGS ================= */
 function openSettingsModal() {
   document.getElementById('newUsernameInput').value = currentUser || '';
+
+  const adminSection = document.getElementById('adminSettingsSection');
+  if (adminSection) {
+    if (currentUser && currentUser.toLowerCase() === 'dallas') {
+      adminSection.style.display = 'block';
+    } else {
+      adminSection.style.display = 'none';
+    }
+  }
+
   document.getElementById('settingsModal').style.display = 'flex';
 }
 
@@ -333,7 +343,7 @@ async function updateUsername() {
   await oldDocRef.delete();
 
   for (const group of userGroups) {
-    const updatedMembers = group.members.map(m => m === currentUser.toLowerCase() ? newName.toLowerCase() : m);
+    const updatedMembers = group.members.map(m => m.toLowerCase() === currentUser.toLowerCase() ? newName.toLowerCase() : m);
     await db.collection('groups').doc(group.id).update({ members: updatedMembers });
   }
 
@@ -396,7 +406,7 @@ function switchTab(tabName) {
   }
 }
 
-/* ================= 3. TIMER, WAKE LOCK & 5s GRACE PERIOD ================= */
+/* ================= 3. TIMER & FOCUS ENGINE ================= */
 async function acquireWakeLock() {
   if ('wakeLock' in navigator) {
     try {
@@ -469,7 +479,6 @@ async function completeSession() {
   document.getElementById('durationInput').disabled = false;
   document.getElementById('plantNicknameInput').disabled = false;
 
-  // Cumulative leaf bank: 3600 seconds = 60 leaves (60 seconds per leaf)
   const sessionSeconds = totalSeconds;
   const totalCombinedSeconds = leafBankSeconds + sessionSeconds;
   const earnedLeaves = Math.floor(totalCombinedSeconds / 60);
@@ -487,7 +496,6 @@ async function completeSession() {
   const plantNickname = getPlantNickname();
   const sessionMinutes = Math.round(totalSeconds / 60);
 
-  // Completed session records full minutes
   await recordPlantOutcome(selectedPlantId, plantNickname, 'grown', earnedLeaves, sessionMinutes, remainingBank);
   resetTimer();
 }
@@ -506,8 +514,6 @@ async function killPlant(reason) {
   document.getElementById('timerStatus').innerText = reason;
 
   const plantNickname = getPlantNickname();
-
-  // ONLY count the minutes actually focused before the plant died
   const elapsedSeconds = totalSeconds - remainingSeconds;
   const sessionMinutes = Math.floor(elapsedSeconds / 60);
 
@@ -526,7 +532,7 @@ function resetTimer() {
   updateTimerDisplay();
 }
 
-/* --- 5-Second Grace Period Logic --- */
+/* --- Grace Period Logic --- */
 function startGracePeriod() {
   if (!isFocusing || isInGracePeriod) return;
   isInGracePeriod = true;
@@ -614,7 +620,44 @@ function updateSelectedPlantDisplay() {
   document.getElementById('timerPlantName').innerText = plant.name;
 }
 
-/* ================= 5. PERSONAL GARDEN & HOVER TOOLTIPS ================= */
+/* ================= 5. TIMESTAMP & SIZING HELPERS ================= */
+function parseTimestamp(ts) {
+  if (!ts) return 0;
+  if (typeof ts === 'number') return ts;
+  if (ts.toMillis) return ts.toMillis();
+  if (ts.seconds) return ts.seconds * 1000;
+  if (typeof ts === 'string') {
+    const parsed = new Date(ts).getTime();
+    return isNaN(parsed) ? (Number(ts) || 0) : parsed;
+  }
+  return 0;
+}
+
+function getStartOfWeek() {
+  const now = new Date();
+  const day = now.getDay();
+  const start = new Date(now);
+  // Monday is day 1, Sunday is day 7 (6 days after Monday)
+  const daysFromMonday = (day === 0 ? 6 : day - 1);
+  start.setDate(now.getDate() - daysFromMonday);
+  start.setHours(0, 0, 0, 0);
+  return start.getTime();
+}
+
+function getRandomPlantSize(timeframe) {
+  if (timeframe === 'day') {
+    return Math.floor(Math.random() * 21) + 75;
+  } else if (timeframe === 'week') {
+    return Math.floor(Math.random() * 16) + 55;
+  } else if (timeframe === 'month') {
+    return Math.floor(Math.random() * 13) + 38;
+  } else if (timeframe === 'year') {
+    return Math.floor(Math.random() * 11) + 26;
+  }
+  return 60;
+}
+
+/* ================= 6. GARDEN DATA SYNCING ================= */
 async function recordPlantOutcome(plantId, nickname, status, earnedLeaves, minutes, updatedBankSeconds) {
   const now = Date.now();
   const entryId = 'entry_' + now + '_' + Math.floor(Math.random() * 1000);
@@ -641,37 +684,40 @@ async function recordPlantOutcome(plantId, nickname, status, earnedLeaves, minut
 
   await db.collection('users').doc(currentUser.toLowerCase()).update(userUpdate);
 
-  for (const group of userGroups) {
-    await db.collection('groups').doc(group.id).update({
-      history: firebase.firestore.FieldValue.arrayUnion({
-        id: plantId,
-        entryId: entryId,
-        nickname: nickname,
-        owner: currentUser,
-        status: status,
-        timestamp: now,
-        minutes: minutes !== undefined ? minutes : 0
-      })
+  // Sync to all groups user belongs to
+  try {
+    const userLower = (currentUser || '').toLowerCase();
+    const groupsSnap = await db.collection('groups').get();
+    
+    const targetGroupIds = new Set();
+    (userGroups || []).forEach(g => targetGroupIds.add(g.id));
+    
+    groupsSnap.forEach(doc => {
+      const data = doc.data();
+      const members = (data.members || []).map(m => String(m).toLowerCase());
+      if (members.includes(userLower)) {
+        targetGroupIds.add(doc.id);
+      }
     });
-  }
-}
 
-/* Helper to calculate scale tiers and random variations based on timeframe */
-function getRandomPlantSize(timeframe) {
-  if (timeframe === 'day') {
-    // Largest: 75px to 95px
-    return Math.floor(Math.random() * 21) + 75;
-  } else if (timeframe === 'week') {
-    // Medium-Large: 55px to 70px
-    return Math.floor(Math.random() * 16) + 55;
-  } else if (timeframe === 'month') {
-    // Medium-Small: 38px to 50px
-    return Math.floor(Math.random() * 13) + 38;
-  } else if (timeframe === 'year') {
-    // Smallest: 26px to 36px (prevents clutter over 365 days)
-    return Math.floor(Math.random() * 11) + 26;
+    const groupPlantRecord = {
+      id: plantId,
+      entryId: entryId,
+      nickname: nickname,
+      owner: currentUser,
+      status: status,
+      timestamp: now,
+      minutes: minutes !== undefined ? minutes : 0
+    };
+
+    for (const gid of targetGroupIds) {
+      await db.collection('groups').doc(gid).set({
+        history: firebase.firestore.FieldValue.arrayUnion(groupPlantRecord)
+      }, { merge: true });
+    }
+  } catch (err) {
+    console.error("Error writing plant to group history:", err);
   }
-  return 60; // Default fallback
 }
 
 function filterGarden(timeframe, btn) {
@@ -691,10 +737,11 @@ function renderGarden(timeframe) {
   const startOfToday = new Date().setHours(0, 0, 0, 0);
 
   const filtered = gardenHistory.filter(item => {
-    if (timeframe === 'day') return item.timestamp >= startOfToday;
-    if (timeframe === 'week') return item.timestamp >= (now - 7 * 86400000);
-    if (timeframe === 'month') return item.timestamp >= (now - 30 * 86400000);
-    if (timeframe === 'year') return item.timestamp >= (now - 365 * 86400000);
+    const t = parseTimestamp(item.timestamp);
+    if (timeframe === 'day') return t >= startOfToday;
+    if (timeframe === 'week') return t >= (now - 7 * 86400000);
+    if (timeframe === 'month') return t >= (now - 30 * 86400000);
+    if (timeframe === 'year') return t >= (now - 365 * 86400000);
     return true;
   });
 
@@ -708,34 +755,32 @@ function renderGarden(timeframe) {
     const randX = Math.floor(Math.random() * 80) + 10;
     const randY = Math.floor(Math.random() * 75) + 12;
 
-    // 1. Generate size based on the current timeframe tier
     const plantSize = getRandomPlantSize(timeframe);
-
     const displayName = item.nickname || plant.name;
     const duration = item.minutes !== undefined ? item.minutes : 0;
     const isDead = item.status === 'dead' || item.status === 'withered';
     const statusText = isDead ? '🥀 Dead' : '🌸 Bloomed';
+    const showTag = (timeframe === 'day' || timeframe === 'week');
 
     const el = document.createElement('div');
     el.className = `planted-item ${isDead ? 'dead' : ''}`;
     el.style.left = `${randX}%`;
     el.style.top = `${randY}%`;
-    el.style.width = `${plantSize + 24}px`; // Adapts container to plant width
+    el.style.width = `${plantSize + 24}px`;
 
-    // 2. Apply inline width and height to the <img>
     el.innerHTML = `
       <div class="plant-tooltip">
         <strong>${displayName}</strong> (${statusText})<br>
         ⏱️ Locked In: ${duration} mins
       </div>
       <img src="${plant.img}" alt="${plant.name}" style="width: ${plantSize}px; height: ${plantSize}px;">
-      <span class="tag">${isDead ? '🥀 ' + displayName : '🌸 ' + displayName}</span>
+      ${showTag ? `<span class="tag">${isDead ? '🥀 ' + displayName : '🌸 ' + displayName}</span>` : ''}
     `;
     field.appendChild(el);
   });
 }
 
-/* ================= 6. STATS MODAL & CHARTS ================= */
+/* ================= 7. STATS MODAL & CHARTS ================= */
 function openStatsModal() {
   document.getElementById('statsModal').style.display = 'flex';
   renderGardenStatsAndChart(currentStatsTimeframe);
@@ -757,14 +802,14 @@ function renderGardenStatsAndChart(timeframe) {
   const startOfToday = new Date().setHours(0, 0, 0, 0);
 
   const plants = gardenHistory.filter(item => {
-    if (timeframe === 'day') return item.timestamp >= startOfToday;
-    if (timeframe === 'week') return item.timestamp >= (now - 7 * 86400000);
-    if (timeframe === 'month') return item.timestamp >= (now - 30 * 86400000);
-    if (timeframe === 'year') return item.timestamp >= (now - 365 * 86400000);
+    const t = parseTimestamp(item.timestamp);
+    if (timeframe === 'day') return t >= startOfToday;
+    if (timeframe === 'week') return t >= (now - 7 * 86400000);
+    if (timeframe === 'month') return t >= (now - 30 * 86400000);
+    if (timeframe === 'year') return t >= (now - 365 * 86400000);
     return true;
   });
 
-  // Calculate total focus minutes using strictly logged elapsed minutes (no fallback defaults)
   const totalMinutes = plants.reduce((sum, item) => sum + (item.minutes !== undefined ? item.minutes : 0), 0);
   const hours = Math.floor(totalMinutes / 60);
   const mins = totalMinutes % 60;
@@ -779,7 +824,7 @@ function renderGardenStatsAndChart(timeframe) {
     dataPoints = new Array(12).fill(0);
 
     plants.forEach(p => {
-      const h = new Date(p.timestamp).getHours();
+      const h = new Date(parseTimestamp(p.timestamp)).getHours();
       const bucket = Math.floor(h / 2);
       dataPoints[bucket] += (p.minutes !== undefined ? p.minutes : 0);
     });
@@ -788,7 +833,7 @@ function renderGardenStatsAndChart(timeframe) {
     dataPoints = new Array(7).fill(0);
 
     plants.forEach(p => {
-      const day = new Date(p.timestamp).getDay();
+      const day = new Date(parseTimestamp(p.timestamp)).getDay();
       dataPoints[day] += (p.minutes !== undefined ? p.minutes : 0);
     });
   } else if (timeframe === 'month') {
@@ -796,7 +841,7 @@ function renderGardenStatsAndChart(timeframe) {
     dataPoints = new Array(5).fill(0);
 
     plants.forEach(p => {
-      const date = new Date(p.timestamp).getDate();
+      const date = new Date(parseTimestamp(p.timestamp)).getDate();
       const weekIdx = Math.min(4, Math.floor((date - 1) / 7));
       dataPoints[weekIdx] += (p.minutes !== undefined ? p.minutes : 0);
     });
@@ -805,7 +850,7 @@ function renderGardenStatsAndChart(timeframe) {
     dataPoints = new Array(12).fill(0);
 
     plants.forEach(p => {
-      const month = new Date(p.timestamp).getMonth();
+      const month = new Date(parseTimestamp(p.timestamp)).getMonth();
       dataPoints[month] += (p.minutes !== undefined ? p.minutes : 0);
     });
   }
@@ -855,7 +900,7 @@ function renderGardenStatsAndChart(timeframe) {
   });
 }
 
-/* ================= 7. NURSERY ================= */
+/* ================= 8. NURSERY ================= */
 function renderNursery() {
   const unlockedGrid = document.getElementById('unlockedPlantsGrid');
   const lockedGrid = document.getElementById('lockedPlantsGrid');
@@ -904,7 +949,7 @@ function updateCurrencyDisplay() {
   document.getElementById('leafCount').innerText = leaves;
 }
 
-/* ================= 8. CLOUD FRIENDS & GROUPS ================= */
+/* ================= 9. CLOUD FRIENDS & GROUPS ================= */
 function renderFriendsList() {
   const ul = document.getElementById('friendsList');
   ul.innerHTML = '';
@@ -986,7 +1031,7 @@ function renderGroupsList() {
       <div class="group-card-header">
         <div>
           <h4>🌱 ${group.name}</h4>
-          <span class="subtitle-text">${group.members.length} members</span>
+          <span class="subtitle-text">${(group.members || []).length} members</span>
         </div>
         <button class="remove-x-btn" title="Leave/Delete group" onclick="deleteOrLeaveGroup('${group.id}')">×</button>
       </div>
@@ -1009,11 +1054,22 @@ async function createGroup() {
     return;
   }
 
+  // Populate newly created group with creator's existing plants
+  const initialHistory = (gardenHistory || []).map(p => ({
+    id: p.id,
+    entryId: p.entryId || ('entry_' + p.timestamp + '_' + Math.floor(Math.random() * 1000)),
+    nickname: p.nickname || '',
+    owner: currentUser,
+    status: p.status || 'grown',
+    timestamp: p.timestamp || Date.now(),
+    minutes: p.minutes !== undefined ? p.minutes : 10
+  }));
+
   await db.collection('groups').add({
     name: name,
     nameLower: name.toLowerCase(),
     members: [currentUser.toLowerCase()],
-    history: []
+    history: initialHistory
   });
 
   input.value = '';
@@ -1032,16 +1088,32 @@ async function joinGroup() {
 
   const groupDoc = snapshot.docs[0];
   const groupData = groupDoc.data();
+  const members = (groupData.members || []).map(m => String(m).toLowerCase());
 
-  if (groupData.members.includes(currentUser.toLowerCase())) {
+  if (members.includes(currentUser.toLowerCase())) {
     alert(`you are already in "${groupData.name}".`);
     return;
   }
 
-  await db.collection('groups').doc(groupDoc.id).update({
-    members: firebase.firestore.FieldValue.arrayUnion(currentUser.toLowerCase())
-  });
+  // Contribute joiner's existing garden plants to group history
+  const userEntries = (gardenHistory || []).map(p => ({
+    id: p.id,
+    entryId: p.entryId || ('entry_' + p.timestamp + '_' + Math.floor(Math.random() * 1000)),
+    nickname: p.nickname || '',
+    owner: currentUser,
+    status: p.status || 'grown',
+    timestamp: p.timestamp || Date.now(),
+    minutes: p.minutes !== undefined ? p.minutes : 10
+  }));
 
+  const updatePayload = {
+    members: firebase.firestore.FieldValue.arrayUnion(currentUser.toLowerCase())
+  };
+  if (userEntries.length > 0) {
+    updatePayload.history = firebase.firestore.FieldValue.arrayUnion(...userEntries);
+  }
+
+  await db.collection('groups').doc(groupDoc.id).update(updatePayload);
   input.value = '';
   alert(`Joined "${groupData.name}"!`);
 }
@@ -1053,7 +1125,7 @@ async function deleteOrLeaveGroup(groupId) {
   const group = userGroups.find(g => g.id === groupId);
   if (!group) return;
 
-  if (group.members.length <= 1) {
+  if ((group.members || []).length <= 1) {
     await db.collection('groups').doc(groupId).delete();
   } else {
     await db.collection('groups').doc(groupId).update({
@@ -1062,16 +1134,29 @@ async function deleteOrLeaveGroup(groupId) {
   }
 }
 
-function viewGroup(groupId) {
+async function viewGroup(groupId) {
   activeGroupId = groupId;
-  const group = userGroups.find(g => g.id === groupId);
-  if (!group) return;
+  let group = userGroups.find(g => g.id === groupId);
 
   document.getElementById('friendsMainView').style.display = 'none';
   document.getElementById('groupDetailView').style.display = 'block';
 
+  // Direct fetch fallback in case local cache is pending
+  if (!group || !group.history) {
+    try {
+      const docSnap = await db.collection('groups').doc(groupId).get();
+      if (docSnap.exists) {
+        group = { id: docSnap.id, ...docSnap.data() };
+      }
+    } catch (e) {
+      console.error("Error loading group directly:", e);
+    }
+  }
+
+  if (!group) return;
+
   document.getElementById('groupDetailTitle').innerText = `🌱 ${group.name}`;
-  document.getElementById('groupMemberCount').innerText = `members: ${group.members.join(', ')}`;
+  document.getElementById('groupMemberCount').innerText = `members: ${(group.members || []).join(', ')}`;
 
   renderGroupLeaderboardAndGarden(group);
 }
@@ -1084,32 +1169,84 @@ function backToFriendsOverview() {
   renderGroupsList();
 }
 
-function getStartOfWeek() {
-  const now = new Date();
-  const day = now.getDay();
-  const start = new Date(now);
-  start.setDate(now.getDate() - day);
-  start.setHours(0, 0, 0, 0);
-  return start.getTime();
-}
-
 function renderGroupLeaderboardAndGarden(group) {
   const startOfWeek = getStartOfWeek();
   const groupHistory = group.history || [];
-  const weeklyHistory = groupHistory.filter(item => item.timestamp >= startOfWeek);
+  
+  // Cleanly parse all timestamps regardless of format
+  const weeklyHistory = groupHistory.filter(item => parseTimestamp(item.timestamp) >= startOfWeek);
 
-  // 1. Tally MINUTES instead of counting plants
+  // 1. Tally minutes accurately for leaderboard
   const minutesTally = {};
-  group.members.forEach(m => minutesTally[m] = 0);
+  const memberDisplayNames = {};
+
+  (group.members || []).forEach(m => {
+    const key = String(m).toLowerCase();
+    minutesTally[key] = 0;
+    memberDisplayNames[key] = m;
+  });
 
   weeklyHistory.forEach(item => {
+    const ownerKey = (item.owner || '').toLowerCase();
+    const mins = item.minutes !== undefined ? item.minutes : 0;
+    if (minutesTally[ownerKey] !== undefined) {
+      minutesTally[ownerKey] += mins;
+    } else {
+      minutesTally[ownerKey] = mins;
+      memberDisplayNames[ownerKey] = item.owner || ownerKey;
+    }
+  });
+
+  // 2. Sort group members by total minutes descending
+  const sortedMembers = Object.keys(minutesTally).map(key => {
+    return { name: memberDisplayNames[key] || key, minutes: minutesTally[key] };
+  }).sort((a, b) => b.minutes - a.minutes);
+
+  const leaderboardEl = document.getElementById('groupLeaderboard');
+  if (leaderboardEl) {
+    leaderboardEl.innerHTML = '';
+
+    sortedMembers.forEach((member, index) => {
+      const isFirst = index === 0 && member.minutes > 0;
+      
+      const hrs = Math.floor(member.minutes / 60);
+      const mins = member.minutes % 60;
+      const timeDisplay = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+
+      const row = document.createElement('div');
+      row.className = 'leader-row';
+      row.innerHTML = `
+        <div>
+          <span>${isFirst ? '👑 #1' : `#${index + 1}`}</span>
+          <strong style="margin-left: 8px;">${member.name}</strong>
+        </div>
+        <div>
+          <span>⏱️ ${timeDisplay}</span>${isFirst ? '<span style="color:#d99b16; margin-left:8px; font-weight:700;">(+250 🍃)</span>' : ''}
+        </div>
+      `;
+      leaderboardEl.appendChild(row);
+    });
+  }
+
+  // 3. Render Group Garden Scatter Plot
+  const scatterEl = document.getElementById('groupGardenScatter');
+  if (!scatterEl) return;
+  scatterEl.innerHTML = '';
+
+  // Use weekly plants; fallback to groupHistory so garden never goes blank
+  const gardenPlants = weeklyHistory.length > 0 ? weeklyHistory : groupHistory;
+
+  if (gardenPlants.length === 0) {
+    scatterEl.innerHTML = `<div class="empty-garden-notice">no plants grown yet.<br>better hurry up and lock in!</div>`;
+    return;
+  }
+
+  gardenPlants.forEach(item => {
     const plant = CATALOG.find(p => p.id === item.id) || CATALOG[0];
     const randX = Math.floor(Math.random() * 80) + 10;
     const randY = Math.floor(Math.random() * 75) + 12;
 
-    // Group gardens track weekly progress -> uses 'week' scale
     const plantSize = getRandomPlantSize('week');
-
     const plantName = item.nickname || plant.name;
     const duration = item.minutes !== undefined ? item.minutes : 0;
     const isDead = item.status === 'dead' || item.status === 'withered';
@@ -1128,72 +1265,6 @@ function renderGroupLeaderboardAndGarden(group) {
         ⏱️ Locked In: ${duration} mins
       </div>
       <img src="${plant.img}" alt="${plant.name}" style="width: ${plantSize}px; height: ${plantSize}px;">
-      <span class="tag">${isDead ? '🥀 ' + plantName + ' (' + item.owner + ')' : '🌸 ' + plantName + ' (' + item.owner + ')'}</span>
-    `;
-    scatterEl.appendChild(el);
-  });
-
-  // 2. Sort group members by total minutes descending
-  const sortedMembers = Object.keys(minutesTally).map(key => {
-    return { name: key, minutes: minutesTally[key] };
-  }).sort((a, b) => b.minutes - a.minutes);
-
-  const leaderboardEl = document.getElementById('groupLeaderboard');
-  leaderboardEl.innerHTML = '';
-
-  // 3. Render rows showing hours and minutes
-  sortedMembers.forEach((member, index) => {
-    const isFirst = index === 0 && member.minutes > 0;
-    
-    // Format minutes into clean "Xh Ym" or just "Xm"
-    const hrs = Math.floor(member.minutes / 60);
-    const mins = member.minutes % 60;
-    const timeDisplay = hrs > 0 ? `${hrs}h${mins}m` : `${mins}m`;
-
-    const row = document.createElement('div');
-    row.className = 'leader-row';
-    row.innerHTML = `
-      <div>
-        <span>${isFirst ? '👑 #1' : `#${index + 1}`}</span>
-        <strong style="margin-left: 8px;">${member.name}</strong>
-      </div>
-      <div>
-        <span>⏱️ ${timeDisplay}</span>${isFirst ? '<span style="color:#d99b16; margin-left:8px; font-weight:700;">(+250 🍃)</span>' : ''}
-      </div>
-    `;
-    leaderboardEl.appendChild(row);
-  });
-
-  // Group Garden Scatter Plot with Hover Tooltips
-  const scatterEl = document.getElementById('groupGardenScatter');
-  scatterEl.innerHTML = '';
-
-  if (weeklyHistory.length === 0) {
-    scatterEl.innerHTML = `<div class="empty-garden-notice">no plants grown this week.<br>better hurry up and lock in!</div>`;
-    return;
-  }
-
-  weeklyHistory.forEach(item => {
-    const plant = CATALOG.find(p => p.id === item.id) || CATALOG[0];
-    const randX = Math.floor(Math.random() * 80) + 10;
-    const randY = Math.floor(Math.random() * 75) + 12;
-
-    const plantName = item.nickname || plant.name;
-    const duration = item.minutes !== undefined ? item.minutes : 0;
-    const isDead = item.status === 'dead' || item.status === 'withered';
-    const statusText = isDead ? '🥀 dead' : '🌸 bloomed';
-
-    const el = document.createElement('div');
-    el.className = `planted-item ${isDead ? 'dead' : ''}`;
-    el.style.left = `${randX}%`;
-    el.style.top = `${randY}%`;
-    el.innerHTML = `
-      <div class="plant-tooltip">
-        <strong>${plantName}</strong> (${statusText})<br>
-        👤 Grown by: ${item.owner}<br>
-        ⏱️️ Locked In: ${duration} mins
-      </div>
-      <img src="${plant.img}" alt="${plant.name}">
       <span class="tag">${isDead ? '🥀 ' + plantName + ' (' + item.owner + ')' : '🌸 ' + plantName + ' (' + item.owner + ')'}</span>
     `;
     scatterEl.appendChild(el);
@@ -1222,4 +1293,131 @@ function startSundayCountdownTimer() {
 
   updateCountdown();
   setInterval(updateCountdown, 60000);
+}
+
+/* ================= 10. ADMIN FUNCTIONS (DALLAS ONLY) ================= */
+async function openAdminModal() {
+  if (!currentUser || currentUser.toLowerCase() !== 'dallas') return;
+  closeSettingsModal();
+  document.getElementById('adminModal').style.display = 'flex';
+  await loadAdminUsers();
+  await loadAdminGroups();
+}
+
+function closeAdminModal() {
+  document.getElementById('adminModal').style.display = 'none';
+}
+
+function switchAdminTab(tab) {
+  const usersBtn = document.getElementById('adminTabUsersBtn');
+  const groupsBtn = document.getElementById('adminTabGroupsBtn');
+  const usersList = document.getElementById('adminUsersList');
+  const groupsList = document.getElementById('adminGroupsList');
+
+  if (tab === 'users') {
+    usersBtn.classList.add('active');
+    groupsBtn.classList.remove('active');
+    usersList.style.display = 'flex';
+    groupsList.style.display = 'none';
+  } else {
+    groupsBtn.classList.add('active');
+    usersBtn.classList.remove('active');
+    groupsList.style.display = 'flex';
+    usersList.style.display = 'none';
+  }
+}
+
+async function loadAdminUsers() {
+  const container = document.getElementById('adminUsersList');
+  container.innerHTML = '<p style="color:#888; font-size:0.85rem;">loading users...</p>';
+
+  try {
+    const snapshot = await db.collection('users').get();
+    container.innerHTML = '';
+
+    if (snapshot.empty) {
+      container.innerHTML = '<p style="color:#888;">no users found.</p>';
+      return;
+    }
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const username = data.displayName || doc.id;
+      const leavesCount = data.leaves || 0;
+      const historyCount = (data.gardenHistory || []).length;
+
+      const row = document.createElement('div');
+      row.className = 'admin-row';
+      row.innerHTML = `
+        <div>
+          <strong>👤 ${username}</strong>
+          <div class="admin-row-meta">🍃 ${leavesCount} leaves • 🪴 ${historyCount} sessions</div>
+        </div>
+        <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8rem;" onclick="adminDeleteUser('${doc.id}', '${username}')">delete</button>
+      `;
+      container.appendChild(row);
+    });
+  } catch (err) {
+    container.innerHTML = `<p style="color:#a44;">error loading users: ${err.message}</p>`;
+  }
+}
+
+async function loadAdminGroups() {
+  const container = document.getElementById('adminGroupsList');
+  container.innerHTML = '<p style="color:#888; font-size:0.85rem;">loading groups...</p>';
+
+  try {
+    const snapshot = await db.collection('groups').get();
+    container.innerHTML = '';
+
+    if (snapshot.empty) {
+      container.innerHTML = '<p style="color:#888;">no groups found.</p>';
+      return;
+    }
+
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      const members = data.members || [];
+      const plantCount = (data.history || []).length;
+
+      const row = document.createElement('div');
+      row.className = 'admin-row';
+      row.innerHTML = `
+        <div>
+          <strong>🌱 ${data.name || doc.id}</strong>
+          <div class="admin-row-meta">👥 ${members.length} members • 🪴 ${plantCount} group plants</div>
+        </div>
+        <button class="btn btn-danger" style="padding: 6px 12px; font-size: 0.8rem;" onclick="adminDeleteGroup('${doc.id}', '${data.name}')">delete</button>
+      `;
+      container.appendChild(row);
+    });
+  } catch (err) {
+    container.innerHTML = `<p style="color:#a44;">error loading groups: ${err.message}</p>`;
+  }
+}
+
+async function adminDeleteUser(docId, username) {
+  const confirmed = confirm(`are you sure you want to completely delete user "${username}"? this cannot be undone.`);
+  if (!confirmed) return;
+
+  try {
+    await db.collection('users').doc(docId).delete();
+    alert(`user "${username}" deleted.`);
+    await loadAdminUsers();
+  } catch (err) {
+    alert(`failed to delete user: ${err.message}`);
+  }
+}
+
+async function adminDeleteGroup(docId, groupName) {
+  const confirmed = confirm(`are you sure you want to completely delete group "${groupName}"?`);
+  if (!confirmed) return;
+
+  try {
+    await db.collection('groups').doc(docId).delete();
+    alert(`Group "${groupName}" deleted.`);
+    await loadAdminGroups();
+  } catch (err) {
+    alert(`failed to delete group: ${err.message}`);
+  }
 }
