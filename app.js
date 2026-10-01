@@ -771,7 +771,7 @@ function renderGarden(timeframe) {
     el.innerHTML = `
       <div class="plant-tooltip">
         <strong>${displayName}</strong> (${statusText})<br>
-        ⏱️ Locked In: ${duration} mins
+        ⏱️ locked in: ${duration} mins
       </div>
       <img src="${plant.img}" alt="${plant.name}" style="width: ${plantSize}px; height: ${plantSize}px;">
       ${showTag ? `<span class="tag">${isDead ? '🥀 ' + displayName : '🌸 ' + displayName}</span>` : ''}
@@ -1261,8 +1261,8 @@ function renderGroupLeaderboardAndGarden(group) {
     el.innerHTML = `
       <div class="plant-tooltip">
         <strong>${plantName}</strong> (${statusText})<br>
-        👤 Grown by: ${item.owner}<br>
-        ⏱️ Locked In: ${duration} mins
+        👤 grown by: ${item.owner}<br>
+        ⏱️ locked in: ${duration} mins
       </div>
       <img src="${plant.img}" alt="${plant.name}" style="width: ${plantSize}px; height: ${plantSize}px;">
       <span class="tag">${isDead ? '🥀 ' + plantName + ' (' + item.owner + ')' : '🌸 ' + plantName + ' (' + item.owner + ')'}</span>
@@ -1287,7 +1287,7 @@ function startSundayCountdownTimer() {
 
     const badge = document.getElementById('sundayCountdown');
     if (badge) {
-      badge.innerText = `Ends in ${hours}h ${mins}m`;
+      badge.innerText = `ends in ${hours}h ${mins}m`;
     }
   }
 
