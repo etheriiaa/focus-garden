@@ -18,34 +18,48 @@ const CATALOG = [
   { id: 'classic-tree', name: 'classic tree', cost: 25, img: 'classic-tree.png' },
   { id: 'droopy-tree', name: 'droopy tree', cost: 25, img: 'droopy-tree.png' },
   { id: 'spruce-tree', name: 'spruce tree', cost: 25, img: 'spruce-tree.png' },
-  { id: 'evil-tree', name: 'evil tree', cost: 50, img: 'evil-tree.png' },
+  { id: 'evil-tree', name: 'evil tree', cost: 25, img: 'evil-tree.png' },
   { id: 'lantern-tree', name: 'lantern tree', cost: 50, img: 'lantern-tree.png' },
-  { id: 'orange-tree', name: 'orange tree', cost: 100, img: 'orange-tree.png' },
-  { id: 'cotton-tree', name: 'cotton tree', cost: 100, img: 'cotton-tree.png' },
-  { id: 'succulent-tree', name: 'succulent tree', cost: 150, img: 'succulent-tree.png' },
-  { id: 'fairy-tree', name: 'fairy tree', cost: 250, img: 'fairy-tree.png' },
-  { id: 'galaxy-tree', name: 'galaxy tree', cost: 250, img: 'classic-tree.png' },
-  { id: 'pink-flowers', name: 'pink flowers', cost: 50, img: 'pink-flowers.png' },
-  { id: 'red-flowers', name: 'red flowers', cost: 50, img: 'red-flowers.png' },
-  { id: 'cactus', name: 'cactus', cost: 50, img: 'cactus.png' },
-  { id: 'succulent', name: 'succulent', cost: 100, img: 'succulent.png' },
-  { id: 'lantern-plant', name: 'lantern plant', cost: 150, img: 'lantern-plant.png' },
-  { id: 'crystal-plant', name: 'crystal plant', cost: 150, img: 'crystal-plant.png' },
-  { id: 'fire-mushrroom', name: 'fire mushroom', cost: 150, img: 'fire-mushroom.png' },
-  { id: 'jelly-mushroom', name: 'jelly mushroom', cost: 150, img: 'jelly-mushroom.png' },
-  { id: 'ghost-mushroom', name: 'ghost-mushroom', cost: 150, img: 'ghost-mushroom.png' },
-  { id: 'leaf-owl', name: 'leaf owl', cost: 150, img: 'leaf-owl.png' },
-  { id: 'leaf-lizard', name: 'leaf lizard', cost: 150, img: 'leaf-lizard.png' },
-  { id: 'succulent-fox', name: 'succulent fox', cost: 250, img: 'succulent-fox.png' },
-  { id: 'carrot-cat', name: 'carrot cat', cost: 300, img: 'carrot-cat.png' },
-  { id: 'cabbage-cat', name: 'cabbage cat', cost: 300, img: 'cabbage-cat.png' },
-  { id: 'cabbage-dog', name: 'cabbage dog', cost: 400, img: 'cabbage-dog.png' },
-  { id: 'tree-rex', name: 'tree-rex', cost: 500, img: 'tree-rex.png' }
+  { id: 'cotton-tree', name: 'cotton tree', cost: 50, img: 'cotton-tree.png' },
+  { id: 'orange-tree', name: 'orange tree', cost: 50, img: 'orange-tree.png' },
+  { id: 'succulent-tree', name: 'succulent tree', cost: 100, img: 'succulent-tree.png' },
+  { id: 'flower-tree', name: 'flower tree', cost: 100, img: 'flower-tree.png' },
+  { id: 'fairy-tree', name: 'fairy tree', cost: 150, img: 'fairy-tree.png' },
+  { id: 'fairy-light-tree', name: 'fairy light tree', cost: 150, img: 'fairy-light-tree.png' },
+  { id: 'galaxy-tree', name: 'galaxy tree', cost: 150, img: 'galaxy-tree.png' },
+  { id: 'red-flowers', name: 'red flowers', cost: 25, img: 'red-flowers.png' },
+  { id: 'pink-flowers', name: 'pink flowers', cost: 25, img: 'pink-flowers.png' },
+  { id: 'eye-flower', name: 'eye flower', cost: 50, img: 'eye-flower.png' },
+  { id: 'alien-flower', name: 'alien flower', cost: 100, img: 'alien-flower.png' },
+  { id: 'fuschia-flowers', name: 'fuschia flowers', cost: 100, img: 'fuschia-flowers.png' },
+  { id: 'spike-fruit', name: 'spike fruit', cost: 25, img: 'spike-fruit.png' },
+  { id: 'purple-fruit', name: 'purple fruit', cost: 50, img: 'purple-fruit.png' },
+  { id: 'golden-fruit', name: 'golden fruit', cost: 50, img: 'golden-fruit.png' },
+  { id: 'lantern-plant', name: 'lantern plant', cost: 50, img: 'lantern-plant.png' },
+  { id: 'crystal-plant', name: 'crystal plant', cost: 50, img: 'crystal-plant.png' },
+  { id: 'cactus', name: 'cactus', cost: 25, img: 'cactus.png' },
+  { id: 'succulent', name: 'succulent', cost: 50, img: 'succulent.png' },
+  { id: 'fire-mushroom', name: 'fire mushroom', cost: 25, img: 'fire-mushroom.png' },
+  { id: 'jelly-mushroom', name: 'jelly mushroom', cost: 25, img: 'jelly-mushroom.png' },
+  { id: 'ghost-mushroom', name: 'ghost mushroom', cost: 25, img: 'ghost-mushroom.png' },
+  { id: 'leaf-owl', name: 'leaf owl', cost: 100, img: 'leaf-owl.png' },
+  { id: 'leaf-lizard', name: 'leaf lizard', cost: 100, img: 'leaf-lizard.png' },
+  { id: 'succulent-fox', name: 'succulent fox', cost: 150, img: 'succulent-fox.png' },
+  { id: 'carrot-cat', name: 'carrot cat', cost: 200, img: 'carrot-cat.png' },
+  { id: 'cabbage-cat', name: 'cabbage cat', cost: 200, img: 'cabbage-cat.png' },
+  { id: 'cabbage-dog', name: 'cabbage dog', cost: 250, img: 'cabbage-dog.png' },
+  { id: 'apple-dino', name: 'apple dino', cost: 250, img: 'apple-dino.png' },
+  { id: 'orange-turtle', name: 'orange turtle', cost: 250, img: 'orange-turtle.png' },
+  { id: 'mango-raccoon', name: 'mango raccoon', cost: 250, img: 'mango-raccoon.png' },
+  { id: 'pineapple-dog', name: 'pineapple dog', cost: 250, img: 'pineapple-dog.png' },
+  { id: 'leek-duck', name: 'leek duck', cost: 250, img: 'leek-duck.png' },
+  { id: 'apple-bat', name: 'apple bat', cost: 250, img: 'apple-bat.png' },
+  { id: 'tree-rex', name: 'tree-rex', cost: 250, img: 'tree-rex.png' },
 ];
 
 let currentUser = localStorage.getItem('currentUser') || null;
 let leaves = 0;
-let leafBankSeconds = 0; // Cumulative seconds (72s = exactly 1 leaf)
+let leafBankSeconds = 0; // Cumulative seconds (60s = exactly 1 leaf)
 let ownedPlants = ['sprout'];
 let selectedPlantId = 'sprout';
 let gardenHistory = [];
@@ -455,11 +469,11 @@ async function completeSession() {
   document.getElementById('durationInput').disabled = false;
   document.getElementById('plantNicknameInput').disabled = false;
 
-  // Cumulative leaf bank: 3600 seconds = 50 leaves (72 seconds per leaf)
+  // Cumulative leaf bank: 3600 seconds = 60 leaves (60 seconds per leaf)
   const sessionSeconds = totalSeconds;
   const totalCombinedSeconds = leafBankSeconds + sessionSeconds;
-  const earnedLeaves = Math.floor(totalCombinedSeconds / 72);
-  const remainingBank = totalCombinedSeconds % 72;
+  const earnedLeaves = Math.floor(totalCombinedSeconds / 60);
+  const remainingBank = totalCombinedSeconds % 60;
   leafBankSeconds = remainingBank;
 
   leaves += earnedLeaves;
@@ -467,7 +481,7 @@ async function completeSession() {
 
   const earnNotice = earnedLeaves > 0 
     ? `🎉 plant grown successfully! +${earnedLeaves} 🍃` 
-    : `🎉 plant grown successfully! (${Math.round((remainingBank / 72) * 100)}% to your next leaf 🍃)`;
+    : `🎉 plant grown successfully! (${Math.round((remainingBank / 60) * 100)}% to your next leaf 🍃)`;
   document.getElementById('timerStatus').innerText = earnNotice;
 
   const plantNickname = getPlantNickname();
@@ -1099,7 +1113,7 @@ function renderGroupLeaderboardAndGarden(group) {
     const plantName = item.nickname || plant.name;
     const duration = item.minutes !== undefined ? item.minutes : 0;
     const isDead = item.status === 'dead' || item.status === 'withered';
-    const statusText = isDead ? '🥀 Dead' : '🌸 Bloomed';
+    const statusText = isDead ? '🥀 dead' : '🌸 bloomed';
 
     const el = document.createElement('div');
     el.className = `planted-item ${isDead ? 'dead' : ''}`;
