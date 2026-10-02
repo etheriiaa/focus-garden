@@ -42,6 +42,15 @@ const CATALOG = [
   { id: 'fire-mushroom', name: 'fire mushroom', cost: 25, img: 'fire-mushroom.png' },
   { id: 'jelly-mushroom', name: 'jelly mushroom', cost: 25, img: 'jelly-mushroom.png' },
   { id: 'ghost-mushroom', name: 'ghost mushroom', cost: 25, img: 'ghost-mushroom.png' },
+  { id: 'fig-house', name: 'fig house', cost: 150, img: 'fig-house.png' },
+  { id: 'watermelon-house', name: 'watermelon house', cost: 150, img: 'watermelon-house.png' },
+  { id: 'pumpkin-house', name: 'pumpkin house', cost: 200, img: 'pumpkin-house.png' },
+  { id: 'pinecone-house', name: 'pinecone house', cost: 200, img: 'pinecone-house.png' },
+  { id: 'pineapple-house', name: 'pineapple house', cost: 250, img: 'pineapple-house.png' },
+  { id: 'blue-flower', name: 'blue flower', cost: 50, img: 'blue-flower.png' },
+  { id: 'pink-flower', name: 'pink flower', cost: 50, img: 'pink-flower.png' },
+  { id: 'yellow-flower', name: 'yellow flower', cost: 50, img: 'yellow-flower.png' },
+  { id: 'jellyfish', name: 'jellyfish', cost: 100, img: 'jellyfish.png' },
   { id: 'leaf-owl', name: 'leaf owl', cost: 100, img: 'leaf-owl.png' },
   { id: 'leaf-lizard', name: 'leaf lizard', cost: 100, img: 'leaf-lizard.png' },
   { id: 'succulent-fox', name: 'succulent fox', cost: 150, img: 'succulent-fox.png' },
@@ -351,7 +360,7 @@ function openSettingsModal() {
 
   const adminSection = document.getElementById('adminSettingsSection');
   if (adminSection) {
-    if (currentUser && currentUser.toLowerCase() === 'dallas') {
+    if (currentUser && currentUser.toLowerCase() === 'admin') {
       adminSection.style.display = 'block';
     } else {
       adminSection.style.display = 'none';
@@ -1552,7 +1561,7 @@ function startSundayCountdownTimer() {
 
 /* ================= 10. ADMIN FUNCTIONS (DALLAS ONLY) ================= */
 async function openAdminModal() {
-  if (!currentUser || currentUser.toLowerCase() !== 'dallas') return;
+  if (!currentUser || currentUser.toLowerCase() !== 'admin') return;
   closeSettingsModal();
   document.getElementById('adminModal').style.display = 'flex';
   await loadAdminUsers();
