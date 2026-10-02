@@ -354,7 +354,6 @@ function setBlockerMode(mode) {
   const whitelistBtn = document.getElementById('blockerModeWhitelistBtn');
   const desc = document.getElementById('blockerModeDescription');
 
-  // Guard against null elements so settings modal never crashes
   if (blacklistBtn && whitelistBtn) {
     if (mode === 'blacklist') {
       blacklistBtn.classList.add('active-mode');
@@ -366,11 +365,9 @@ function setBlockerMode(mode) {
   }
 
   if (desc) {
-    if (mode === 'blacklist') {
-      desc.innerText = "blacklist mode: blocks only the websites listed below.";
-    } else {
-      desc.innerText = "whitelist mode: blocks EVERYTHING except the websites listed below.";
-    }
+    desc.innerText = mode === 'blacklist'
+      ? "blacklist mode: blocks only the websites listed below."
+      : "whitelist mode: blocks EVERYTHING except the websites listed below.";
   }
 }
 
@@ -383,6 +380,7 @@ function loadBlockerSettingsUI() {
   const savedSites = localStorage.getItem('blockerSites') || defaultSites;
   const textarea = document.getElementById('blockerSitesTextarea');
   if (textarea) textarea.value = savedSites;
+  
   setBlockerMode(mode);
 }
 
