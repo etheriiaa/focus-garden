@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "better forest",
+  "version": "1.0",
+  "description": "Gamified focus timer and website blocker.",
+  "action": {
+    "default_popup": "index.html",
+    "default_icon": "sprout.png"
+  },
+  "permissions": [
+    "storage",
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}

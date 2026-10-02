@@ -79,8 +79,16 @@ let knownNotificationIds = new Set();
 let isInitialGroupLoad = true;
 let isInitialUserLoad = true;
 
+// Device & Multi-Device Session State
+const clientDeviceId = 'dev_' + Math.random().toString(36).substring(2, 9);
+let currentSessionId = null;
+let isRemoteSession = false;
+
+// Wall-clock & Anti-Cheat State
 let totalSeconds = 600;
 let remainingSeconds = 600;
+let targetEndTime = null;
+let sessionStartTime = null;
 let timerInterval = null;
 let isFocusing = false;
 let wakeLockSentinel = null;
@@ -90,6 +98,7 @@ let gracePeriodTimeout = null;
 let graceBeepInterval = null;
 let graceSecondsLeft = 5;
 let isInGracePeriod = false;
+let hiddenStartTime = null;
 
 /* ================= TOAST NOTIFICATION POPUPS ================= */
 function showToast(icon, title, message, type = 'grown') {
@@ -144,6 +153,7 @@ function playWarningBeep() {
 
 /* ================= INITIALIZATION ================= */
 window.addEventListener('DOMContentLoaded', () => {
+  loadBlockerSettingsUI();
   if (currentUser) {
     attachFirebaseListeners(currentUser);
     showMainApp();
@@ -180,7 +190,8 @@ async function handleLogin(e) {
       selectedPlantId: 'sprout',
       gardenHistory: [],
       friends: [],
-      notifications: []
+      notifications: [],
+      activeSession: null
     });
   }
 
@@ -208,6 +219,22 @@ function attachFirebaseListeners(username) {
     selectedPlantId = data.selectedPlantId || 'sprout';
     gardenHistory = data.gardenHistory || [];
     friends = data.friends || [];
+
+    // --- TWO-WAY CROSS-DEVICE TIMER SYNC ---
+    const active = data.activeSession;
+    if (active && active.status === 'running') {
+      if (!isFocusing || currentSessionId !== active.sessionId) {
+        syncRemoteTimerStart(active);
+      }
+    } else {
+      if (isFocusing && isRemoteSession) {
+        if (active && active.status === 'dead') {
+          syncRemoteTimerKill(active.reason);
+        } else {
+          syncRemoteTimerStop();
+        }
+      }
+    }
 
     const notifications = data.notifications || [];
     if (isInitialUserLoad) {
@@ -238,7 +265,6 @@ function attachFirebaseListeners(username) {
       const groupData = { id: doc.id, ...doc.data() };
       const members = (groupData.members || []).map(m => String(m).toLowerCase());
 
-      // Match membership case-insensitively
       if (members.includes(userLower)) {
         userGroups.push(groupData);
 
@@ -301,7 +327,7 @@ function backToHome() {
   document.getElementById('pageHome').style.display = 'flex';
 }
 
-/* ================= SETTINGS ================= */
+/* ================= SETTINGS & EXTENSION CONFIG ================= */
 function openSettingsModal() {
   document.getElementById('newUsernameInput').value = currentUser || '';
 
@@ -314,11 +340,58 @@ function openSettingsModal() {
     }
   }
 
+  loadBlockerSettingsUI();
   document.getElementById('settingsModal').style.display = 'flex';
 }
 
 function closeSettingsModal() {
   document.getElementById('settingsModal').style.display = 'none';
+}
+
+function setBlockerMode(mode) {
+  localStorage.setItem('blockerMode', mode);
+  const blacklistBtn = document.getElementById('blockerModeBlacklistBtn');
+  const whitelistBtn = document.getElementById('blockerModeWhitelistBtn');
+  const desc = document.getElementById('blockerModeDescription');
+
+  if (mode === 'blacklist') {
+    blacklistBtn.classList.add('active-mode');
+    whitelistBtn.classList.remove('active-mode');
+    desc.innerText = "blacklist mode: blocks only the websites listed below.";
+  } else {
+    whitelistBtn.classList.add('active-mode');
+    blacklistBtn.classList.remove('active-mode');
+    desc.innerText = "whitelist mode: blocks EVERYTHING except the websites listed below.";
+  }
+}
+
+function loadBlockerSettingsUI() {
+  const mode = localStorage.getItem('blockerMode') || 'blacklist';
+  const defaultSites = mode === 'blacklist' 
+    ? "youtube.com, reddit.com, instagram.com, tiktok.com, twitter.com, netflix.com"
+    : "google.com, docs.google.com, canvas.instructure.com, wikipedia.org";
+  
+  const savedSites = localStorage.getItem('blockerSites') || defaultSites;
+  const textarea = document.getElementById('blockerSitesTextarea');
+  if (textarea) textarea.value = savedSites;
+  setBlockerMode(mode);
+}
+
+function saveBlockerSettings() {
+  const textarea = document.getElementById('blockerSitesTextarea');
+  if (!textarea) return;
+  const sites = textarea.value.trim();
+  localStorage.setItem('blockerSites', sites);
+
+  // If running inside Chrome Extension, sync to background service worker
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.set({
+      blockerMode: localStorage.getItem('blockerMode') || 'blacklist',
+      blockerSites: sites
+    });
+  }
+
+  alert("blocker settings saved!");
 }
 
 async function updateUsername() {
@@ -365,7 +438,8 @@ async function confirmResetProgress() {
     leafBankSeconds: 0,
     ownedPlants: ['sprout'],
     selectedPlantId: 'sprout',
-    gardenHistory: []
+    gardenHistory: [],
+    activeSession: null
   });
 
   closeSettingsModal();
@@ -406,7 +480,7 @@ function switchTab(tabName) {
   }
 }
 
-/* ================= 3. TIMER & FOCUS ENGINE ================= */
+/* ================= 3. TIMER & CROSS-DEVICE ENGINE ================= */
 async function acquireWakeLock() {
   if ('wakeLock' in navigator) {
     try {
@@ -442,8 +516,14 @@ function updateTimerDisplay() {
 async function startFocus() {
   if (isFocusing) return;
   isFocusing = true;
+  isRemoteSession = false;
+  currentSessionId = 'sess_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+
   initAudio();
   await acquireWakeLock();
+
+  sessionStartTime = Date.now();
+  targetEndTime = sessionStartTime + (remainingSeconds * 1000);
 
   document.getElementById('startBtn').disabled = true;
   document.getElementById('giveUpBtn').disabled = false;
@@ -451,14 +531,102 @@ async function startFocus() {
   document.getElementById('plantNicknameInput').disabled = true;
   document.getElementById('timerStatus').innerText = "locking in! don't leave or switch apps unless you want your plant to die";
 
+  // Broadcast session to cloud for cross-device synchronization
+  if (currentUser) {
+    db.collection('users').doc(currentUser.toLowerCase()).update({
+      activeSession: {
+        status: 'running',
+        sessionId: currentSessionId,
+        initiatorDeviceId: clientDeviceId,
+        totalSeconds: totalSeconds,
+        targetEndTime: targetEndTime,
+        plantId: selectedPlantId,
+        plantNickname: getPlantNickname()
+      }
+    }).catch(err => console.error("Error broadcasting activeSession:", err));
+  }
+
+  // Notify Chrome Extension Background script to begin blocking sites
+  triggerExtensionBlocker(true);
+
+  clearInterval(timerInterval);
   timerInterval = setInterval(() => {
-    remainingSeconds--;
+    const now = Date.now();
+    const msLeft = targetEndTime - now;
+    remainingSeconds = Math.max(0, Math.ceil(msLeft / 1000));
     updateTimerDisplay();
 
     if (remainingSeconds <= 0) {
       completeSession();
     }
-  }, 1000);
+  }, 500);
+}
+
+function syncRemoteTimerStart(active) {
+  isFocusing = true;
+  isRemoteSession = true;
+  currentSessionId = active.sessionId;
+  totalSeconds = active.totalSeconds;
+  targetEndTime = active.targetEndTime;
+  selectedPlantId = active.plantId || 'sprout';
+
+  acquireWakeLock();
+  updateSelectedPlantDisplay();
+
+  document.getElementById('startBtn').disabled = true;
+  document.getElementById('giveUpBtn').disabled = false;
+  document.getElementById('durationInput').disabled = true;
+  document.getElementById('plantNicknameInput').disabled = true;
+  document.getElementById('plantNicknameInput').value = active.plantNickname || '';
+  document.getElementById('timerStatus').innerText = "locking in on another device! 🌱";
+
+  triggerExtensionBlocker(true);
+
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    const now = Date.now();
+    const msLeft = targetEndTime - now;
+    remainingSeconds = Math.max(0, Math.ceil(msLeft / 1000));
+    updateTimerDisplay();
+
+    if (remainingSeconds <= 0) {
+      completeSession();
+    }
+  }, 500);
+}
+
+function syncRemoteTimerStop() {
+  clearInterval(timerInterval);
+  isFocusing = false;
+  isRemoteSession = false;
+  currentSessionId = null;
+  targetEndTime = null;
+  releaseWakeLock();
+  triggerExtensionBlocker(false);
+
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('giveUpBtn').disabled = true;
+  document.getElementById('durationInput').disabled = false;
+  document.getElementById('plantNicknameInput').disabled = false;
+  document.getElementById('timerStatus').innerText = "session finished on another device!";
+  resetTimer();
+}
+
+function syncRemoteTimerKill(reason) {
+  clearInterval(timerInterval);
+  isFocusing = false;
+  isRemoteSession = false;
+  currentSessionId = null;
+  targetEndTime = null;
+  releaseWakeLock();
+  triggerExtensionBlocker(false);
+
+  document.getElementById('startBtn').disabled = false;
+  document.getElementById('giveUpBtn').disabled = true;
+  document.getElementById('durationInput').disabled = false;
+  document.getElementById('plantNicknameInput').disabled = false;
+  document.getElementById('timerStatus').innerText = reason || "your plant died on another device";
+  resetTimer();
 }
 
 function getPlantNickname() {
@@ -473,6 +641,7 @@ async function completeSession() {
   isFocusing = false;
   cancelGracePeriod();
   releaseWakeLock();
+  triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
   document.getElementById('giveUpBtn').disabled = true;
@@ -485,18 +654,40 @@ async function completeSession() {
   const remainingBank = totalCombinedSeconds % 60;
   leafBankSeconds = remainingBank;
 
-  leaves += earnedLeaves;
-  document.getElementById('leafCount').innerText = leaves;
+  const plantNickname = getPlantNickname();
+  const sessionMinutes = Math.round(totalSeconds / 60);
+
+  // ATOMIC CLAIM: Only the first device to complete writes rewards to prevent duplicate gains
+  let isClaimed = true;
+  if (currentUser) {
+    const userRef = db.collection('users').doc(currentUser.toLowerCase());
+    try {
+      isClaimed = await db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        const data = userDoc.data() || {};
+        const active = data.activeSession;
+        if (active && active.sessionId === currentSessionId && active.status === 'running') {
+          transaction.update(userRef, { 'activeSession.status': 'completed' });
+          return true;
+        }
+        return false;
+      });
+    } catch (e) {
+      console.error("Session claim failed:", e);
+    }
+  }
+
+  if (isClaimed) {
+    leaves += earnedLeaves;
+    document.getElementById('leafCount').innerText = leaves;
+    await recordPlantOutcome(selectedPlantId, plantNickname, 'grown', earnedLeaves, sessionMinutes, remainingBank);
+  }
 
   const earnNotice = earnedLeaves > 0 
     ? `🎉 plant grown successfully! +${earnedLeaves} 🍃` 
     : `🎉 plant grown successfully! (${Math.round((remainingBank / 60) * 100)}% to your next leaf 🍃)`;
   document.getElementById('timerStatus').innerText = earnNotice;
 
-  const plantNickname = getPlantNickname();
-  const sessionMinutes = Math.round(totalSeconds / 60);
-
-  await recordPlantOutcome(selectedPlantId, plantNickname, 'grown', earnedLeaves, sessionMinutes, remainingBank);
   resetTimer();
 }
 
@@ -506,6 +697,7 @@ async function killPlant(reason) {
   isFocusing = false;
   cancelGracePeriod();
   releaseWakeLock();
+  triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
   document.getElementById('giveUpBtn').disabled = true;
@@ -514,8 +706,14 @@ async function killPlant(reason) {
   document.getElementById('timerStatus').innerText = reason;
 
   const plantNickname = getPlantNickname();
-  const elapsedSeconds = totalSeconds - remainingSeconds;
+  const elapsedSeconds = Math.max(0, totalSeconds - remainingSeconds);
   const sessionMinutes = Math.floor(elapsedSeconds / 60);
+
+  if (currentUser) {
+    db.collection('users').doc(currentUser.toLowerCase()).update({
+      activeSession: { status: 'dead', reason: reason }
+    }).catch(err => console.error("Error updating activeSession:", err));
+  }
 
   await recordPlantOutcome(selectedPlantId, plantNickname, 'dead', 0, sessionMinutes, leafBankSeconds);
   resetTimer();
@@ -529,18 +727,23 @@ function resetTimer() {
   const mins = parseInt(document.getElementById('durationInput').value) || 10;
   totalSeconds = mins * 60;
   remainingSeconds = totalSeconds;
+  targetEndTime = null;
+  currentSessionId = null;
+  isRemoteSession = false;
   updateTimerDisplay();
 }
 
-/* --- Grace Period Logic --- */
+/* --- Grace Period & Mobile Tab/App Switch Penalty --- */
 function startGracePeriod() {
   if (!isFocusing || isInGracePeriod) return;
   isInGracePeriod = true;
   graceSecondsLeft = 5;
 
   const banner = document.getElementById('graceWarningBanner');
-  banner.style.display = 'block';
-  document.getElementById('graceSecondsCount').innerText = graceSecondsLeft;
+  if (banner) {
+    banner.style.display = 'block';
+    document.getElementById('graceSecondsCount').innerText = graceSecondsLeft;
+  }
 
   playWarningBeep();
   graceBeepInterval = setInterval(() => {
@@ -549,7 +752,8 @@ function startGracePeriod() {
 
   gracePeriodTimeout = setInterval(() => {
     graceSecondsLeft--;
-    document.getElementById('graceSecondsCount').innerText = graceSecondsLeft;
+    const counter = document.getElementById('graceSecondsCount');
+    if (counter) counter.innerText = graceSecondsLeft;
 
     if (graceSecondsLeft <= 0) {
       cancelGracePeriod();
@@ -563,22 +767,70 @@ function cancelGracePeriod() {
   isInGracePeriod = false;
   clearInterval(gracePeriodTimeout);
   clearInterval(graceBeepInterval);
-  document.getElementById('graceWarningBanner').style.display = 'none';
+  const banner = document.getElementById('graceWarningBanner');
+  if (banner) banner.style.display = 'none';
 }
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
-    if (isFocusing) startGracePeriod();
+    if (isFocusing) {
+      hiddenStartTime = Date.now();
+      startGracePeriod();
+    }
   } else {
+    // Exact wall-clock elapsed check for mobile background throttling
+    if (isFocusing && hiddenStartTime) {
+      const secondsAway = (Date.now() - hiddenStartTime) / 1000;
+      hiddenStartTime = null;
+
+      if (secondsAway >= 5) {
+        cancelGracePeriod();
+        killPlant(`you left the app for ${Math.round(secondsAway)}s and your plant died`);
+        return;
+      }
+    }
+
     if (isInGracePeriod) {
       cancelGracePeriod();
+    }
+
+    if (isFocusing && targetEndTime) {
+      acquireWakeLock();
+      const now = Date.now();
+      const msLeft = targetEndTime - now;
+
+      if (msLeft <= 0) {
+        remainingSeconds = 0;
+        updateTimerDisplay();
+        completeSession();
+      } else {
+        remainingSeconds = Math.ceil(msLeft / 1000);
+        updateTimerDisplay();
+      }
     }
   }
 });
 
 window.addEventListener("pagehide", () => {
-  if (isFocusing) startGracePeriod();
+  if (isFocusing) {
+    hiddenStartTime = Date.now();
+    startGracePeriod();
+  }
 });
+
+function triggerExtensionBlocker(start) {
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+    const mode = localStorage.getItem('blockerMode') || 'blacklist';
+    const rawSites = localStorage.getItem('blockerSites') || '';
+    const sites = rawSites.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+    chrome.runtime.sendMessage({
+      action: start ? "START_BLOCKING" : "STOP_BLOCKING",
+      mode: mode,
+      sites: sites
+    }).catch(err => console.log("Extension connection standby:", err));
+  }
+}
 
 /* ================= 4. PLANT PICKER ================= */
 function openPlantPicker() {
@@ -637,7 +889,6 @@ function getStartOfWeek() {
   const now = new Date();
   const day = now.getDay();
   const start = new Date(now);
-  // Monday is day 1, Sunday is day 7 (6 days after Monday)
   const daysFromMonday = (day === 0 ? 6 : day - 1);
   start.setDate(now.getDate() - daysFromMonday);
   start.setHours(0, 0, 0, 0);
@@ -684,7 +935,6 @@ async function recordPlantOutcome(plantId, nickname, status, earnedLeaves, minut
 
   await db.collection('users').doc(currentUser.toLowerCase()).update(userUpdate);
 
-  // Sync to all groups user belongs to
   try {
     const userLower = (currentUser || '').toLowerCase();
     const groupsSnap = await db.collection('groups').get();
@@ -1054,7 +1304,6 @@ async function createGroup() {
     return;
   }
 
-  // Populate newly created group with creator's existing plants
   const initialHistory = (gardenHistory || []).map(p => ({
     id: p.id,
     entryId: p.entryId || ('entry_' + p.timestamp + '_' + Math.floor(Math.random() * 1000)),
@@ -1095,7 +1344,6 @@ async function joinGroup() {
     return;
   }
 
-  // Contribute joiner's existing garden plants to group history
   const userEntries = (gardenHistory || []).map(p => ({
     id: p.id,
     entryId: p.entryId || ('entry_' + p.timestamp + '_' + Math.floor(Math.random() * 1000)),
@@ -1141,7 +1389,6 @@ async function viewGroup(groupId) {
   document.getElementById('friendsMainView').style.display = 'none';
   document.getElementById('groupDetailView').style.display = 'block';
 
-  // Direct fetch fallback in case local cache is pending
   if (!group || !group.history) {
     try {
       const docSnap = await db.collection('groups').doc(groupId).get();
@@ -1172,11 +1419,8 @@ function backToFriendsOverview() {
 function renderGroupLeaderboardAndGarden(group) {
   const startOfWeek = getStartOfWeek();
   const groupHistory = group.history || [];
-  
-  // Cleanly parse all timestamps regardless of format
   const weeklyHistory = groupHistory.filter(item => parseTimestamp(item.timestamp) >= startOfWeek);
 
-  // 1. Tally minutes accurately for leaderboard
   const minutesTally = {};
   const memberDisplayNames = {};
 
@@ -1197,7 +1441,6 @@ function renderGroupLeaderboardAndGarden(group) {
     }
   });
 
-  // 2. Sort group members by total minutes descending
   const sortedMembers = Object.keys(minutesTally).map(key => {
     return { name: memberDisplayNames[key] || key, minutes: minutesTally[key] };
   }).sort((a, b) => b.minutes - a.minutes);
@@ -1228,12 +1471,10 @@ function renderGroupLeaderboardAndGarden(group) {
     });
   }
 
-  // 3. Render Group Garden Scatter Plot
   const scatterEl = document.getElementById('groupGardenScatter');
   if (!scatterEl) return;
   scatterEl.innerHTML = '';
 
-  // Use weekly plants; fallback to groupHistory so garden never goes blank
   const gardenPlants = weeklyHistory.length > 0 ? weeklyHistory : groupHistory;
 
   if (gardenPlants.length === 0) {

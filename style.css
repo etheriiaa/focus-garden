@@ -175,6 +175,11 @@ body {
   font-size: 0.95rem;
 }
 
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 0.85rem;
+}
+
 .btn-large {
   padding: 14px 32px;
   font-size: 1.15rem;
@@ -210,7 +215,7 @@ body {
   transform: none;
 }
 
-input[type="text"], input[type="password"], input[type="number"] {
+input[type="text"], input[type="password"], input[type="number"], textarea {
   width: 100%;
   padding: 10px 14px;
   border: 1.5px solid #d4ded3;
@@ -218,9 +223,10 @@ input[type="text"], input[type="password"], input[type="number"] {
   font-size: 0.95rem;
   outline: none;
   transition: border-color 0.2s;
+  font-family: inherit;
 }
 
-input:focus {
+input:focus, textarea:focus {
   border-color: var(--primary-accent);
 }
 
@@ -228,6 +234,30 @@ input:focus {
   display: flex;
   gap: 8px;
   margin: 0.6rem 0;
+}
+
+/* Extension Blocker Styling in Settings */
+.blocker-mode-toggle {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.blocker-mode-toggle .btn {
+  flex: 1;
+  border-radius: 10px;
+}
+
+.blocker-mode-toggle .active-mode {
+  background: var(--primary-accent);
+  color: white;
+}
+
+.blocker-textarea {
+  min-height: 70px;
+  margin-top: 8px;
+  resize: vertical;
+  font-size: 0.85rem;
 }
 
 /* ================= APP LAYOUT ================= */
@@ -378,7 +408,6 @@ input:focus {
   border: 1px solid #e1ebe0;
 }
 
-/* Strictly horizontal row: label and input on the SAME line */
 .timer-field-row {
   display: flex !important;
   flex-direction: row !important;
@@ -862,7 +891,7 @@ input:focus {
 }
 
 .settings-card {
-  max-width: 380px;
+  max-width: 400px;
 }
 
 .settings-desc {
