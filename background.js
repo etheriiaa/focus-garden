@@ -1,6 +1,22 @@
-// Background Service Worker for Focus Garden / Better Forest
+// Open or focus your Focus Garden tab when clicking the sprout toolbar icon
+chrome.action.onClicked.addListener(() => {
+  const targetUrl = "https://etheriiaa.github.io/focus-garden/";
+
+  chrome.tabs.query({}, (tabs) => {
+    const existingTab = tabs.find(t => t.url && t.url.includes("focus-garden"));
+    if (existingTab) {
+      chrome.tabs.update(existingTab.id, { active: true });
+      if (existingTab.windowId) {
+        chrome.windows.update(existingTab.windowId, { focused: true });
+      }
+    } else {
+      chrome.tabs.create({ url: targetUrl });
+    }
+  });
+});
+
+// Clear any stale blocking rules when extension boots up
 chrome.runtime.onInstalled.addListener(() => {
-  // Clear any leftover dynamic rules upon install
   chrome.declarativeNetRequest.getDynamicRules(existingRules => {
     const ids = existingRules.map(r => r.id);
     if (ids.length > 0) {
@@ -9,6 +25,7 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+// Listen for START_BLOCKING / STOP_BLOCKING from the webpage
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "START_BLOCKING") {
     const mode = request.mode || "blacklist";
@@ -32,8 +49,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           });
         });
       } else if (mode === "whitelist") {
-        // Allow listed research sites and crucial CDNs, block all others
-        const allowed = [...sites, "gstatic.com", "googleapis.com", "firebaseio.com", "jsdelivr.net"];
+        // Allow listed research sites, search engines, and Firebase CDNs
+        const allowed = [...sites, "google.com", "gstatic.com", "googleapis.com", "firebaseio.com", "jsdelivr.net"];
 
         allowed.forEach((site, index) => {
           newRules.push({
@@ -67,7 +84,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       });
     });
 
-    return true; // Keep message port open for async response
+    return true;
   }
 
   if (request.action === "STOP_BLOCKING") {

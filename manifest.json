@@ -4,18 +4,29 @@
   "version": "1.0",
   "description": "Gamified focus timer and website blocker.",
   "action": {
-    "default_popup": "index.html",
     "default_icon": "sprout.png"
   },
   "permissions": [
     "storage",
     "declarativeNetRequest",
-    "declarativeNetRequestFeedback"
+    "declarativeNetRequestFeedback",
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://etheriiaa.github.io/focus-garden/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
 }

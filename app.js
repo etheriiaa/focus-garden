@@ -778,14 +778,23 @@ function cancelGracePeriod() {
   if (banner) banner.style.display = 'none';
 }
 
+/* Helper to check if user is on mobile */
+function isMobileDevice() {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+         (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+}
+
+/* --- Grace Period & Mobile Tab/App Switch Penalty --- */
 document.addEventListener("visibilitychange", () => {
+  // ONLY enforce the 5-second tab-switching death penalty on mobile phones
+  if (!isMobileDevice()) return;
+
   if (document.hidden) {
     if (isFocusing) {
       hiddenStartTime = Date.now();
       startGracePeriod();
     }
   } else {
-    // Exact wall-clock elapsed check for mobile background throttling
     if (isFocusing && hiddenStartTime) {
       const secondsAway = (Date.now() - hiddenStartTime) / 1000;
       hiddenStartTime = null;
@@ -819,24 +828,24 @@ document.addEventListener("visibilitychange", () => {
 });
 
 window.addEventListener("pagehide", () => {
-  if (isFocusing) {
+  if (isMobileDevice() && isFocusing) {
     hiddenStartTime = Date.now();
     startGracePeriod();
   }
 });
 
+/* Send message to Chrome Extension via postMessage bridge */
 function triggerExtensionBlocker(start) {
-  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-    const mode = localStorage.getItem('blockerMode') || 'blacklist';
-    const rawSites = localStorage.getItem('blockerSites') || '';
-    const sites = rawSites.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  const mode = localStorage.getItem('blockerMode') || 'blacklist';
+  const rawSites = localStorage.getItem('blockerSites') || 'youtube.com, reddit.com, instagram.com, tiktok.com, twitter.com, netflix.com';
+  const sites = rawSites.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
-    chrome.runtime.sendMessage({
-      action: start ? "START_BLOCKING" : "STOP_BLOCKING",
-      mode: mode,
-      sites: sites
-    }).catch(err => console.log("Extension connection standby:", err));
-  }
+  window.postMessage({
+    type: "FOCUS_GARDEN_BLOCKER",
+    action: start ? "START_BLOCKING" : "STOP_BLOCKING",
+    mode: mode,
+    sites: sites
+  }, "*");
 }
 
 /* ================= 4. PLANT PICKER ================= */
