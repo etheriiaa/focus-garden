@@ -740,6 +740,14 @@ function resetTimer() {
   updateTimerDisplay();
 }
 
+/* Strict Mobile Phone Detection */
+function isMobilePhone() {
+  const ua = navigator.userAgent || navigator.vendor || window.opera;
+  const isMobileOS = /iPhone|iPod|iPad|Android.*Mobile|Windows Phone|webOS|BlackBerry/i.test(ua);
+  const isDesktopOS = /Macintosh|Mac OS X|Windows NT|Linux x86_64/i.test(ua);
+  return isMobileOS && !isDesktopOS;
+}
+
 /* --- Grace Period & Mobile Tab/App Switch Penalty --- */
 function startGracePeriod() {
   if (!isFocusing || isInGracePeriod) return;
@@ -778,16 +786,9 @@ function cancelGracePeriod() {
   if (banner) banner.style.display = 'none';
 }
 
-/* Helper to check if user is on mobile */
-function isMobileDevice() {
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-         (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
-}
-
-/* --- Grace Period & Mobile Tab/App Switch Penalty --- */
 document.addEventListener("visibilitychange", () => {
-  // ONLY enforce the 5-second tab-switching death penalty on mobile phones
-  if (!isMobileDevice()) return;
+  // CRITICAL: NEVER kill the plant on Mac/PC when switching tabs to study or Google things!
+  if (!isMobilePhone()) return;
 
   if (document.hidden) {
     if (isFocusing) {
@@ -795,6 +796,7 @@ document.addEventListener("visibilitychange", () => {
       startGracePeriod();
     }
   } else {
+    // Exact wall-clock elapsed check for mobile background throttling
     if (isFocusing && hiddenStartTime) {
       const secondsAway = (Date.now() - hiddenStartTime) / 1000;
       hiddenStartTime = null;
@@ -828,7 +830,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 window.addEventListener("pagehide", () => {
-  if (isMobileDevice() && isFocusing) {
+  if (isMobilePhone() && isFocusing) {
     hiddenStartTime = Date.now();
     startGracePeriod();
   }

@@ -21,12 +21,16 @@
   "content_scripts": [
     {
       "matches": [
-        "https://etheriiaa.github.io/focus-garden/*",
-        "http://localhost/*",
-        "http://127.0.0.1/*"
+        "<all_urls>"
       ],
       "js": ["content.js"],
       "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html", "sprout.png"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

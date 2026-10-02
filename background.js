@@ -36,12 +36,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const newRules = [];
 
       if (mode === "blacklist") {
-        // Block only designated distraction domains
+        // Redirect blacklisted sites to your custom visual shield page
         sites.forEach((site, index) => {
           newRules.push({
             id: index + 1,
             priority: 1,
-            action: { type: "block" },
+            action: {
+              type: "redirect",
+              redirect: { extensionPath: "/blocked.html" }
+            },
             condition: {
               urlFilter: `||${site}`,
               resourceTypes: ["main_frame"]
@@ -49,8 +52,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           });
         });
       } else if (mode === "whitelist") {
-        // Allow listed research sites, search engines, and Firebase CDNs
-        const allowed = [...sites, "google.com", "gstatic.com", "googleapis.com", "firebaseio.com", "jsdelivr.net"];
+        // Whitelist mode: Allow specified domains, redirect all others to shield
+        const allowed = [...sites, "google.com", "gstatic.com", "googleapis.com", "firebaseio.com", "jsdelivr.net", "github.io"];
 
         allowed.forEach((site, index) => {
           newRules.push({
@@ -64,11 +67,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           });
         });
 
-        // Block everything else
+        // Redirect everything else to shield
         newRules.push({
           id: 9999,
           priority: 1,
-          action: { type: "block" },
+          action: {
+            type: "redirect",
+            redirect: { extensionPath: "/blocked.html" }
+          },
           condition: {
             urlFilter: "*",
             resourceTypes: ["main_frame"]
