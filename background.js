@@ -1,4 +1,17 @@
-// Open or focus your Focus Garden tab when clicking the sprout toolbar icon
+// Active blocking state
+let isBlocking = false;
+let blockerMode = "blacklist";
+let blockerSites = [];
+
+// Initialize saved settings from storage
+chrome.storage.local.get(["blockerMode", "blockerSites"], (res) => {
+  if (res.blockerMode) blockerMode = res.blockerMode;
+  if (res.blockerSites) {
+    blockerSites = res.blockerSites.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+  }
+});
+
+// Clicking sprout toolbar icon focuses or opens Focus Garden
 chrome.action.onClicked.addListener(() => {
   const targetUrl = "https://etheriiaa.github.io/focus-garden/";
 
@@ -15,94 +28,116 @@ chrome.action.onClicked.addListener(() => {
   });
 });
 
-// Clear any stale blocking rules when extension boots up
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.declarativeNetRequest.getDynamicRules(existingRules => {
-    const ids = existingRules.map(r => r.id);
-    if (ids.length > 0) {
-      chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: ids });
-    }
-  });
-});
-
-// Listen for START_BLOCKING / STOP_BLOCKING from the webpage
+// Handle commands from app.js via content.js
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "START_BLOCKING") {
-    const mode = request.mode || "blacklist";
-    const sites = request.sites || [];
-
-    chrome.declarativeNetRequest.getDynamicRules(existingRules => {
-      const removeIds = existingRules.map(r => r.id);
-      const newRules = [];
-
-      if (mode === "blacklist") {
-        // Redirect blacklisted sites to your custom visual shield page
-        sites.forEach((site, index) => {
-          newRules.push({
-            id: index + 1,
-            priority: 1,
-            action: {
-              type: "redirect",
-              redirect: { extensionPath: "/blocked.html" }
-            },
-            condition: {
-              urlFilter: `||${site}`,
-              resourceTypes: ["main_frame"]
-            }
-          });
-        });
-      } else if (mode === "whitelist") {
-        // Whitelist mode: Allow specified domains, redirect all others to shield
-        const allowed = [...sites, "google.com", "gstatic.com", "googleapis.com", "firebaseio.com", "jsdelivr.net", "github.io"];
-
-        allowed.forEach((site, index) => {
-          newRules.push({
-            id: index + 1,
-            priority: 2,
-            action: { type: "allow" },
-            condition: {
-              urlFilter: `||${site}`,
-              resourceTypes: ["main_frame", "sub_frame", "stylesheet", "script", "image", "xmlhttprequest"]
-            }
-          });
-        });
-
-        // Redirect everything else to shield
-        newRules.push({
-          id: 9999,
-          priority: 1,
-          action: {
-            type: "redirect",
-            redirect: { extensionPath: "/blocked.html" }
-          },
-          condition: {
-            urlFilter: "*",
-            resourceTypes: ["main_frame"]
-          }
-        });
-      }
-
-      chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: removeIds,
-        addRules: newRules
-      }, () => {
-        sendResponse({ status: "blocking_active", mode: mode, count: newRules.length });
-      });
-    });
-
+    isBlocking = true;
+    if (request.mode) blockerMode = request.mode;
+    if (request.sites && Array.isArray(request.sites)) {
+      blockerSites = request.sites;
+    }
+    sendResponse({ status: "blocking_active", mode: blockerMode, sites: blockerSites });
     return true;
   }
 
   if (request.action === "STOP_BLOCKING") {
-    chrome.declarativeNetRequest.getDynamicRules(existingRules => {
-      const removeIds = existingRules.map(r => r.id);
-      chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: removeIds
-      }, () => {
-        sendResponse({ status: "blocking_disabled" });
-      });
-    });
-
+    isBlocking = false;
+    sendResponse({ status: "blocking_disabled" });
     return true;
   }
+});
+
+// Central URL check: redirects to blocked.html and triggers kill on Focus Garden
+function checkAndEnforceUrl(urlStr, tabId) {
+  if (!isBlocking || !urlStr) return;
+
+  // Ignore internal Chrome protocols and Focus Garden itself
+  if (
+    urlStr.startsWith("chrome://") || 
+    urlStr.startsWith("chrome-extension://") || 
+    urlStr.startsWith("about:") || 
+    urlStr.includes("focus-garden") || 
+    urlStr.includes("127.0.0.1") || 
+    urlStr.includes("localhost")
+  ) {
+    return;
+  }
+
+  let hostname = "";
+  try {
+    hostname = new URL(urlStr).hostname.toLowerCase();
+  } catch (e) {
+    return;
+  }
+
+  if (!hostname) return;
+
+  let shouldBlock = false;
+  let reason = "";
+
+  if (blockerMode === "blacklist") {
+    const isBlacklisted = blockerSites.some(site => {
+      const clean = site.replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+      return clean && (hostname === clean || hostname.endsWith("." + clean));
+    });
+    if (isBlacklisted) {
+      shouldBlock = true;
+      reason = `you visited ${hostname} (blacklisted) and your plant died`;
+    }
+  } else if (blockerMode === "whitelist") {
+    // Essential infrastructure allowed by default
+    const defaultAllowed = ["gstatic.com", "googleapis.com", "firebaseio.com", "github.io"];
+    const isAllowed = [...blockerSites, ...defaultAllowed].some(site => {
+      const clean = site.replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+      return clean && (hostname === clean || hostname.endsWith("." + clean));
+    });
+    if (!isAllowed) {
+      shouldBlock = true;
+      reason = `you visited ${hostname} (not on whitelist) and your plant died`;
+    }
+  }
+
+  if (shouldBlock) {
+    isBlocking = false; // Turn off blocking so the user can see blocked.html and Focus Garden
+    const blockedUrl = chrome.runtime.getURL("blocked.html") + "?site=" + encodeURIComponent(hostname);
+    chrome.tabs.update(tabId, { url: blockedUrl });
+    notifyFocusGardenKill(reason);
+  }
+}
+
+// Dispatches the kill command to the open Focus Garden tab
+function notifyFocusGardenKill(reason) {
+  chrome.tabs.query({}, (tabs) => {
+    tabs.forEach(t => {
+      if (t.url && (t.url.includes("focus-garden") || t.url.includes("localhost") || t.url.includes("127.0.0.1"))) {
+        chrome.tabs.sendMessage(t.id, {
+          action: "KILL_PLANT_FROM_EXTENSION",
+          reason: reason
+        }).catch(() => {});
+      }
+    });
+  });
+}
+
+// Intercepts navigation before network requests initiate
+chrome.webNavigation.onBeforeNavigate.addListener((details) => {
+  if (details.frameId === 0) {
+    checkAndEnforceUrl(details.url, details.tabId);
+  }
+});
+
+// Intercepts tab URL updates
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.url) {
+    checkAndEnforceUrl(changeInfo.url, tabId);
+  }
+});
+
+// Intercepts switching into a tab that already loaded a prohibited site
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  chrome.tabs.get(activeInfo.tabId, (tab) => {
+    if (tab && tab.url) {
+      checkAndEnforceUrl(tab.url, tab.id);
+    }
+  });
 });

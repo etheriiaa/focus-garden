@@ -82,7 +82,6 @@ let isInitialUserLoad = true;
 // Device & Multi-Device Session State
 const clientDeviceId = 'dev_' + Math.random().toString(36).substring(2, 9);
 let currentSessionId = null;
-let isRemoteSession = false;
 
 // Wall-clock & Anti-Cheat State
 let totalSeconds = 600;
@@ -99,6 +98,15 @@ let graceBeepInterval = null;
 let graceSecondsLeft = 5;
 let isInGracePeriod = false;
 let hiddenStartTime = null;
+
+/* ================= ACCURATE MOBILE DETECTION ================= */
+function isMobilePhone() {
+  const ua = navigator.userAgent || navigator.vendor || window.opera || '';
+  const isIOS = /iPhone|iPod|iPad/i.test(ua);
+  const isAndroid = /Android/i.test(ua) && /Mobile/i.test(ua);
+  const isTouchScreen = navigator.maxTouchPoints > 1 && window.innerWidth <= 1024;
+  return isIOS || isAndroid || isTouchScreen;
+}
 
 /* ================= TOAST NOTIFICATION POPUPS ================= */
 function showToast(icon, title, message, type = 'grown') {
@@ -159,6 +167,16 @@ window.addEventListener('DOMContentLoaded', () => {
     showMainApp();
   }
   startSundayCountdownTimer();
+});
+
+// Listen for kill commands dispatched from the Chrome extension
+window.addEventListener("message", (event) => {
+  if (event.source !== window) return;
+  if (event.data && event.data.type === "FOCUS_GARDEN_KILL") {
+    if (isFocusing) {
+      killPlant(event.data.reason || "you visited a prohibited website and your plant died");
+    }
+  }
 });
 
 /* ================= 1. AUTH & FIRESTORE SYNC ================= */
@@ -226,13 +244,13 @@ function attachFirebaseListeners(username) {
       if (!isFocusing || currentSessionId !== active.sessionId) {
         syncRemoteTimerStart(active);
       }
+    } else if (active && active.status === 'dead') {
+      if (isFocusing) {
+        syncRemoteTimerKill(active.reason);
+      }
     } else {
-      if (isFocusing && isRemoteSession) {
-        if (active && active.status === 'dead') {
-          syncRemoteTimerKill(active.reason);
-        } else {
-          syncRemoteTimerStop();
-        }
+      if (isFocusing) {
+        syncRemoteTimerStop();
       }
     }
 
@@ -375,12 +393,11 @@ function loadBlockerSettingsUI() {
   const mode = localStorage.getItem('blockerMode') || 'blacklist';
   const defaultSites = mode === 'blacklist' 
     ? "youtube.com, reddit.com, instagram.com, tiktok.com, twitter.com, netflix.com"
-    : "google.com, docs.google.com, canvas.instructure.com, wikipedia.org";
+    : "instagram.com, google.com, docs.google.com, canvas.instructure.com, wikipedia.org";
   
   const savedSites = localStorage.getItem('blockerSites') || defaultSites;
   const textarea = document.getElementById('blockerSitesTextarea');
   if (textarea) textarea.value = savedSites;
-  
   setBlockerMode(mode);
 }
 
@@ -390,14 +407,7 @@ function saveBlockerSettings() {
   const sites = textarea.value.trim();
   localStorage.setItem('blockerSites', sites);
 
-  // If running inside Chrome Extension, sync to background service worker
-  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-    chrome.storage.local.set({
-      blockerMode: localStorage.getItem('blockerMode') || 'blacklist',
-      blockerSites: sites
-    });
-  }
-
+  triggerExtensionBlocker(isFocusing);
   alert("blocker settings saved!");
 }
 
@@ -523,7 +533,6 @@ function updateTimerDisplay() {
 async function startFocus() {
   if (isFocusing) return;
   isFocusing = true;
-  isRemoteSession = false;
   currentSessionId = 'sess_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
 
   initAudio();
@@ -538,7 +547,6 @@ async function startFocus() {
   document.getElementById('plantNicknameInput').disabled = true;
   document.getElementById('timerStatus').innerText = "locking in! don't leave or switch apps unless you want your plant to die";
 
-  // Broadcast session to cloud for cross-device synchronization
   if (currentUser) {
     db.collection('users').doc(currentUser.toLowerCase()).update({
       activeSession: {
@@ -553,7 +561,6 @@ async function startFocus() {
     }).catch(err => console.error("Error broadcasting activeSession:", err));
   }
 
-  // Notify Chrome Extension Background script to begin blocking sites
   triggerExtensionBlocker(true);
 
   clearInterval(timerInterval);
@@ -571,7 +578,6 @@ async function startFocus() {
 
 function syncRemoteTimerStart(active) {
   isFocusing = true;
-  isRemoteSession = true;
   currentSessionId = active.sessionId;
   totalSeconds = active.totalSeconds;
   targetEndTime = active.targetEndTime;
@@ -605,7 +611,6 @@ function syncRemoteTimerStart(active) {
 function syncRemoteTimerStop() {
   clearInterval(timerInterval);
   isFocusing = false;
-  isRemoteSession = false;
   currentSessionId = null;
   targetEndTime = null;
   releaseWakeLock();
@@ -622,7 +627,6 @@ function syncRemoteTimerStop() {
 function syncRemoteTimerKill(reason) {
   clearInterval(timerInterval);
   isFocusing = false;
-  isRemoteSession = false;
   currentSessionId = null;
   targetEndTime = null;
   releaseWakeLock();
@@ -664,7 +668,6 @@ async function completeSession() {
   const plantNickname = getPlantNickname();
   const sessionMinutes = Math.round(totalSeconds / 60);
 
-  // ATOMIC CLAIM: Only the first device to complete writes rewards to prevent duplicate gains
   let isClaimed = true;
   if (currentUser) {
     const userRef = db.collection('users').doc(currentUser.toLowerCase());
@@ -680,7 +683,7 @@ async function completeSession() {
         return false;
       });
     } catch (e) {
-      console.error("Session claim failed:", e);
+      console.error("Session claim transaction failed:", e);
     }
   }
 
@@ -718,7 +721,11 @@ async function killPlant(reason) {
 
   if (currentUser) {
     db.collection('users').doc(currentUser.toLowerCase()).update({
-      activeSession: { status: 'dead', reason: reason }
+      activeSession: { 
+        status: 'dead', 
+        sessionId: currentSessionId,
+        reason: reason 
+      }
     }).catch(err => console.error("Error updating activeSession:", err));
   }
 
@@ -736,16 +743,7 @@ function resetTimer() {
   remainingSeconds = totalSeconds;
   targetEndTime = null;
   currentSessionId = null;
-  isRemoteSession = false;
   updateTimerDisplay();
-}
-
-/* Strict Mobile Phone Detection */
-function isMobilePhone() {
-  const ua = navigator.userAgent || navigator.vendor || window.opera;
-  const isMobileOS = /iPhone|iPod|iPad|Android.*Mobile|Windows Phone|webOS|BlackBerry/i.test(ua);
-  const isDesktopOS = /Macintosh|Mac OS X|Windows NT|Linux x86_64/i.test(ua);
-  return isMobileOS && !isDesktopOS;
 }
 
 /* --- Grace Period & Mobile Tab/App Switch Penalty --- */
@@ -787,7 +785,7 @@ function cancelGracePeriod() {
 }
 
 document.addEventListener("visibilitychange", () => {
-  // CRITICAL: NEVER kill the plant on Mac/PC when switching tabs to study or Google things!
+  // Enforce the 5-second tab-switching death penalty strictly on mobile devices
   if (!isMobilePhone()) return;
 
   if (document.hidden) {
@@ -796,7 +794,6 @@ document.addEventListener("visibilitychange", () => {
       startGracePeriod();
     }
   } else {
-    // Exact wall-clock elapsed check for mobile background throttling
     if (isFocusing && hiddenStartTime) {
       const secondsAway = (Date.now() - hiddenStartTime) / 1000;
       hiddenStartTime = null;
@@ -836,10 +833,9 @@ window.addEventListener("pagehide", () => {
   }
 });
 
-/* Send message to Chrome Extension via postMessage bridge */
 function triggerExtensionBlocker(start) {
   const mode = localStorage.getItem('blockerMode') || 'blacklist';
-  const rawSites = localStorage.getItem('blockerSites') || 'youtube.com, reddit.com, instagram.com, tiktok.com, twitter.com, netflix.com';
+  const rawSites = localStorage.getItem('blockerSites') || 'youtube.com, reddit.com, instagram.com';
   const sites = rawSites.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
   window.postMessage({

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>better forest™ - site blocked</title>
+  <title>better forest™ - plant died</title>
   <style>
     body {
       margin: 0;
@@ -11,18 +11,18 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      background: #e9f0e8;
+      background: #fbf0f0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      color: #2f4835;
+      color: #4a2c2c;
     }
     .shield-card {
-      background: rgba(255, 255, 255, 0.95);
+      background: rgba(255, 255, 255, 0.96);
       border-radius: 32px;
       padding: 3rem 2.5rem;
       text-align: center;
-      max-width: 440px;
+      max-width: 460px;
       box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
-      border: 2px solid #bdd7c7;
+      border: 2px solid #e0b4b4;
     }
     .shield-icon {
       font-size: 4rem;
@@ -32,10 +32,11 @@
       font-size: 1.8rem;
       margin: 0 0 0.5rem;
       font-weight: 800;
+      color: #b33939;
     }
     p {
       font-size: 0.95rem;
-      color: #667e6c;
+      color: #7d5a5a;
       line-height: 1.5;
       margin: 0 0 1.8rem;
     }
@@ -60,10 +61,18 @@
 </head>
 <body>
   <div class="shield-card">
-    <div class="shield-icon">🛡️🌱</div>
-    <h1>locking in!</h1>
-    <p>this website is blocked while your focus session is active. return to your work so your plant can bloom!</p>
+    <div class="shield-icon">🥀🛑</div>
+    <h1>your plant died!</h1>
+    <p id="deathMessage">you accessed a prohibited website while locking in.</p>
     <a href="https://etheriiaa.github.io/focus-garden/" class="btn-return">← back to focus garden</a>
   </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const site = params.get('site');
+    if (site) {
+      document.getElementById('deathMessage').innerText = `you visited "${site}" while locking in, and your plant died.`;
+    }
+  </script>
 </body>
 </html>
