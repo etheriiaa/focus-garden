@@ -75,6 +75,26 @@
 
         <hr class="section-divider-sm">
 
+        <!-- Website Blocker Configuration (For Chrome Extension) -->
+        <div class="settings-section">
+          <label><strong>website blocker (extension)</strong></label>
+          <p class="settings-desc">block distracting sites while locked in</p>
+          
+          <div class="blocker-mode-toggle">
+            <button id="blockerModeBlacklistBtn" type="button" class="btn btn-secondary btn-sm active-mode" onclick="setBlockerMode('blacklist')">blacklist</button>
+            <button id="blockerModeWhitelistBtn" type="button" class="btn btn-secondary btn-sm" onclick="setBlockerMode('whitelist')">whitelist</button>
+          </div>
+
+          <p id="blockerModeDescription" class="settings-desc" style="margin-top: 6px; font-weight: 600;">
+            blacklist mode: blocks only the websites listed below.
+          </p>
+
+          <textarea id="blockerSitesTextarea" class="blocker-textarea" placeholder="youtube.com, reddit.com, instagram.com"></textarea>
+          <button type="button" class="btn btn-primary" style="width: 100%; margin-top: 6px;" onclick="saveBlockerSettings()">save blocker settings</button>
+        </div>
+
+        <hr class="section-divider-sm">
+
         <!-- Site Blocker Option for Chrome Extension -->
         <div class="settings-section">
           <label><strong>🌐 site blocker</strong></label>

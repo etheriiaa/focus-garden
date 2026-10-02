@@ -354,14 +354,23 @@ function setBlockerMode(mode) {
   const whitelistBtn = document.getElementById('blockerModeWhitelistBtn');
   const desc = document.getElementById('blockerModeDescription');
 
-  if (mode === 'blacklist') {
-    blacklistBtn.classList.add('active-mode');
-    whitelistBtn.classList.remove('active-mode');
-    desc.innerText = "blacklist mode: blocks only the websites listed below.";
-  } else {
-    whitelistBtn.classList.add('active-mode');
-    blacklistBtn.classList.remove('active-mode');
-    desc.innerText = "whitelist mode: blocks EVERYTHING except the websites listed below.";
+  // Guard against null elements so settings modal never crashes
+  if (blacklistBtn && whitelistBtn) {
+    if (mode === 'blacklist') {
+      blacklistBtn.classList.add('active-mode');
+      whitelistBtn.classList.remove('active-mode');
+    } else {
+      whitelistBtn.classList.add('active-mode');
+      blacklistBtn.classList.remove('active-mode');
+    }
+  }
+
+  if (desc) {
+    if (mode === 'blacklist') {
+      desc.innerText = "blacklist mode: blocks only the websites listed below.";
+    } else {
+      desc.innerText = "whitelist mode: blocks EVERYTHING except the websites listed below.";
+    }
   }
 }
 
