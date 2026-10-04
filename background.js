@@ -111,7 +111,9 @@ function checkAndEnforceUrl(urlStr, tabId) {
   if (shouldBlock) {
     isBlocking = false;
     chrome.storage.local.set({ isBlocking: false });
-    const blockedUrl = chrome.runtime.getURL("blocked.html") + "?site=" + encodeURIComponent(hostname);
+
+    // Redirect to the hosted blocked page on GitHub Pages
+    const blockedUrl = `https://etheriiaa.github.io/focus-garden/blocked.html?site=${encodeURIComponent(hostname)}`;
     chrome.tabs.update(tabId, { url: blockedUrl });
     notifyFocusGardenKill(reason);
   }
