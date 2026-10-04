@@ -14,11 +14,6 @@
   <!-- TOAST NOTIFICATION CONTAINER -->
   <div id="toastContainer" class="toast-container"></div>
 
-  <!-- GRACE PERIOD OVERLAY & WARNING BANNER -->
-  <div id="graceWarningBanner" class="grace-banner" style="display: none;">
-    ⚠️ uh oh! return in <span id="graceSecondsCount">5</span>s or your plant will die!
-  </div>
-
   <!-- EXIT SCREEN -->
   <div id="exitScreen" class="exit-screen" style="display: none;">
     <p>you hate me and want me dead.</p>
@@ -76,8 +71,6 @@
 
         <hr class="section-divider-sm">
 
-        <hr class="section-divider-sm">
-
         <!-- Website Blocker Configuration -->
         <div class="settings-section">
           <label><strong>website blocker (extension)</strong></label>
@@ -98,7 +91,7 @@
 
         <hr class="section-divider-sm">
 
-        <!-- Admin Option (Visible ONLY to "dallas") -->
+        <!-- Admin Option -->
         <div id="adminSettingsSection" class="settings-section" style="display: none;">
           <label><strong>admin panel</strong></label>
           <p class="settings-desc">manage all registered accounts and groups</p>
@@ -117,37 +110,6 @@
         <div class="settings-section">
           <button class="btn btn-secondary" style="width: 100%;" onclick="logOut()">log out</button>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- SITE BLOCKER SETTINGS MODAL -->
-  <div id="blockerModal" class="modal-overlay" style="display: none;">
-    <div class="modal-card blocker-modal-card">
-      <div class="modal-header">
-        <div>
-          <h3>🌐 focus site blocker</h3>
-          <p class="subtitle-text">choose your restriction mode when locking in</p>
-        </div>
-        <button class="close-icon-btn" onclick="closeBlockerModal()">✕</button>
-      </div>
-
-      <div class="blocker-mode-toggle">
-        <button id="blockerModeBlacklistBtn" class="filter-btn active" onclick="setBlockerMode('blacklist')">Blacklist</button>
-        <button id="blockerModeWhitelistBtn" class="filter-btn" onclick="setBlockerMode('whitelist')">Whitelist</button>
-      </div>
-
-      <p id="blockerModeDesc" class="blocker-desc">
-        <strong>Blacklist Mode:</strong> Only listed sites (e.g. YouTube, Twitter) will be blocked. Everything else is open.
-      </p>
-
-      <div class="form-group" style="margin-top: 10px;">
-        <label>domains to apply (comma-separated):</label>
-        <textarea id="blockerSitesTextarea" class="blocker-textarea" placeholder="youtube.com, reddit.com, instagram.com, twitter.com, tiktok.com"></textarea>
-      </div>
-
-      <div class="modal-actions" style="margin-top: 14px;">
-        <button class="btn btn-primary" style="width: 100%;" onclick="saveBlockerSettings()">save blocker settings</button>
       </div>
     </div>
   </div>
@@ -197,10 +159,10 @@
       </div>
 
       <nav class="nav-tabs">
-        <button class="tab-btn active" onclick="switchTab('timer')">timer</button>
-        <button class="tab-btn" onclick="switchTab('garden')">garden</button>
-        <button class="tab-btn" onclick="switchTab('nursery')">nursery</button>
-        <button class="tab-btn" onclick="switchTab('friends')">friends</button>
+        <button class="tab-btn active" onclick="switchTab('timer', this)">timer</button>
+        <button class="tab-btn" onclick="switchTab('garden', this)">garden</button>
+        <button class="tab-btn" onclick="switchTab('nursery', this)">nursery</button>
+        <button class="tab-btn" onclick="switchTab('friends', this)">friends</button>
       </nav>
 
       <div class="currency-pill">
@@ -213,31 +175,23 @@
       <div class="glass-card timer-card">
         <div class="selected-plant-area">
           <div class="plant-avatar-wrapper" onclick="openPlantPicker()">
-            <img id="timerPlantImg" src="img-placeholder.jpg" alt="Selected Plant" class="plant-hero-img">
-            <span id="timerPlantName" class="plant-name-badge">Starter Sprout</span>
+            <img id="timerPlantImg" src="sprout.png" alt="Selected Plant" class="plant-hero-img">
+            <span id="timerPlantName" class="plant-name-badge">sprout</span>
           </div>
         </div>
 
         <div class="timer-display" id="timerDisplay">10:00</div>
-        <p id="timerStatus" class="timer-status">why aren't you locking in already?</p>
+        <p id="timerStatus" class="timer-status">ready to lock in?</p>
 
-        <!-- Matched Horizontal Rows -->
+        <!-- Configuration Inputs -->
         <div class="timer-inputs-container">
           <div class="timer-field-row">
             <label for="plantNicknameInput">name your plant:</label>
             <input type="text" id="plantNicknameInput" placeholder="e.g. natalie" maxlength="20">
           </div>
 
-          <div class="timer-field-row" style="justify-content: space-between;">
-          <label for="mobileModeSelect">mobile mode:</label>
-          <select id="mobileModeSelect" onchange="onMobileModeChange()" style="width: 140px; padding: 6px 10px; border-radius: 12px; font-weight: 600; border: 1.5px solid #d4ded3;">
-            <option value="strict">strict</option>
-            <option value="pocket">chill</option>
-          </select>
-        </div>
-
           <div class="timer-field-row">
-            <label for="durationInput">session length:</label>
+            <label for="durationInput">session length (mins):</label>
             <input type="number" id="durationInput" min="1" max="180" value="10" onchange="onCustomTimeChange()">
           </div>
         </div>

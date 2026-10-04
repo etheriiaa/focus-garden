@@ -90,28 +90,6 @@ body {
   to { transform: translateX(120%); opacity: 0; }
 }
 
-/* ================= GRACE PERIOD BANNER ================= */
-.grace-banner {
-  position: fixed;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--warning);
-  color: white;
-  padding: 12px 24px;
-  border-radius: 20px;
-  font-weight: 700;
-  box-shadow: 0 8px 24px rgba(241, 154, 62, 0.4);
-  z-index: 9999;
-  animation: pulseWarning 1s infinite alternate;
-  text-align: center;
-}
-
-@keyframes pulseWarning {
-  0% { transform: translateX(-50%) scale(1); }
-  100% { transform: translateX(-50%) scale(1.05); }
-}
-
 /* ================= EXIT SCREEN ================= */
 .exit-screen {
   background: #ffffff !important;
@@ -400,10 +378,10 @@ input:focus, textarea:focus {
 .timer-inputs-container {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 1.5rem;
   background: #f7faf6;
-  padding: 14px 18px;
+  padding: 16px 20px;
   border-radius: 20px;
   border: 1px solid #e1ebe0;
 }

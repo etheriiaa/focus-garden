@@ -2,11 +2,16 @@ let isBlocking = false;
 let blockerMode = "blacklist";
 let blockerSites = [];
 
-// Initialize saved settings from storage
-chrome.storage.local.get(["blockerMode", "blockerSites"], (res) => {
+// Initialize saved settings from storage and persist blocking state across service worker restarts
+chrome.storage.local.get(["isBlocking", "blockerMode", "blockerSites"], (res) => {
+  if (typeof res.isBlocking === 'boolean') isBlocking = res.isBlocking;
   if (res.blockerMode) blockerMode = res.blockerMode;
   if (res.blockerSites) {
-    blockerSites = res.blockerSites.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (Array.isArray(res.blockerSites)) {
+      blockerSites = res.blockerSites;
+    } else if (typeof res.blockerSites === 'string') {
+      blockerSites = res.blockerSites.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    }
   }
 });
 
@@ -35,18 +40,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.sites && Array.isArray(request.sites)) {
       blockerSites = request.sites;
     }
+    chrome.storage.local.set({
+      isBlocking: true,
+      blockerMode: blockerMode,
+      blockerSites: blockerSites
+    });
     sendResponse({ status: "blocking_active", mode: blockerMode, sites: blockerSites });
     return true;
   }
 
   if (request.action === "STOP_BLOCKING") {
     isBlocking = false;
+    chrome.storage.local.set({ isBlocking: false });
     sendResponse({ status: "blocking_disabled" });
     return true;
   }
 });
 
-// Central URL enforcement
+// Central URL enforcement for active browsing/navigation
 function checkAndEnforceUrl(urlStr, tabId) {
   if (!isBlocking || !urlStr) return;
 
@@ -85,7 +96,6 @@ function checkAndEnforceUrl(urlStr, tabId) {
       reason = `you visited ${hostname} (blacklisted) and your plant died`;
     }
   } else if (blockerMode === "whitelist") {
-    // Whitelist mode: Allow user domains + vital developer and research services
     const defaultAllowed = ["gstatic.com", "googleapis.com", "firebaseio.com", "github.io", "google.com"];
     const isAllowed = [...blockerSites, ...defaultAllowed].some(site => {
       const clean = site.replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
@@ -100,13 +110,14 @@ function checkAndEnforceUrl(urlStr, tabId) {
 
   if (shouldBlock) {
     isBlocking = false;
+    chrome.storage.local.set({ isBlocking: false });
     const blockedUrl = chrome.runtime.getURL("blocked.html") + "?site=" + encodeURIComponent(hostname);
     chrome.tabs.update(tabId, { url: blockedUrl });
     notifyFocusGardenKill(reason);
   }
 }
 
-// Dispatches the kill event to all open Focus Garden tabs
+// Dispatches the kill event to open Focus Garden tabs
 function notifyFocusGardenKill(reason) {
   chrome.tabs.query({}, (tabs) => {
     tabs.forEach(t => {
@@ -127,18 +138,9 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   }
 });
 
-// Tab update listener
+// Tab update listener: catches URL changes within existing tabs
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url) {
     checkAndEnforceUrl(changeInfo.url, tabId);
   }
-});
-
-// Tab switch listener: catches switching to already-loaded prohibited tabs
-chrome.tabs.onActivated.addListener((activeInfo) => {
-  chrome.tabs.get(activeInfo.tabId, (tab) => {
-    if (tab && tab.url) {
-      checkAndEnforceUrl(tab.url, tab.id);
-    }
-  });
 });

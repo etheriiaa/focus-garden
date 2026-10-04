@@ -93,7 +93,7 @@ const clientDeviceId = 'dev_' + Math.random().toString(36).substring(2, 9);
 let currentSessionId = null;
 let lastDeadSessionId = null;
 
-// Wall-clock & Anti-Cheat State
+// Wall-clock State
 let totalSeconds = 600;
 let remainingSeconds = 600;
 let targetEndTime = null;
@@ -101,21 +101,6 @@ let sessionStartTime = null;
 let timerInterval = null;
 let isFocusing = false;
 let wakeLockSentinel = null;
-
-let audioCtx = null;
-let gracePeriodTimeout = null;
-let graceSecondsLeft = 5;
-let isInGracePeriod = false;
-let mobileFocusMode = localStorage.getItem('mobileFocusMode') || 'strict';
-
-/* ================= ACCURATE MOBILE DETECTION ================= */
-function isMobilePhone() {
-  const ua = navigator.userAgent || navigator.vendor || window.opera || '';
-  const isIOS = /iPhone|iPod|iPad/i.test(ua);
-  const isAndroid = /Android/i.test(ua) && /Mobile/i.test(ua);
-  const isTouchScreen = navigator.maxTouchPoints > 1 && window.innerWidth <= 1024;
-  return isIOS || isAndroid || isTouchScreen;
-}
 
 /* ================= TOAST NOTIFICATION POPUPS ================= */
 function showToast(icon, title, message, type = 'grown') {
@@ -140,39 +125,9 @@ function showToast(icon, title, message, type = 'grown') {
   }, 4500);
 }
 
-/* ================= WEB AUDIO BEEPER ================= */
-function initAudio() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
-}
-
-function playWarningBeep() {
-  try {
-    initAudio();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(650, audioCtx.currentTime);
-    gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.2);
-  } catch (e) {
-    console.log("Audio standby:", e);
-  }
-}
-
 /* ================= INITIALIZATION ================= */
 window.addEventListener('DOMContentLoaded', () => {
   loadBlockerSettingsUI();
-  const modeSelect = document.getElementById('mobileModeSelect');
-  if (modeSelect) modeSelect.value = mobileFocusMode;
 
   if (currentUser) {
     attachFirebaseListeners(currentUser);
@@ -181,14 +136,7 @@ window.addEventListener('DOMContentLoaded', () => {
   startSundayCountdownTimer();
 });
 
-function onMobileModeChange() {
-  const select = document.getElementById('mobileModeSelect');
-  if (!select) return;
-  mobileFocusMode = select.value;
-  localStorage.setItem('mobileFocusMode', mobileFocusMode);
-}
-
-// Listen for kill commands dispatched from the Chrome extension
+// Listen for kill commands dispatched from the Chrome extension (when visiting prohibited sites)
 window.addEventListener("message", (event) => {
   if (event.source !== window) return;
   if (event.data && event.data.type === "FOCUS_GARDEN_KILL") {
@@ -208,7 +156,7 @@ function closeLoginModal() {
 }
 
 async function handleLogin(e) {
-  e.preventDefault();
+  if (e) e.preventDefault();
   const inputUser = document.getElementById('loginUsername').value.trim();
   if (!inputUser) return;
 
@@ -264,18 +212,6 @@ function attachFirebaseListeners(username) {
         if (!isFocusing || currentSessionId !== active.sessionId) {
           syncRemoteTimerStart(active);
         }
-      }
-
-      // If phone reported leaving the app in strict mode, mirror the death countdown to desktop
-      if (!isMobilePhone() && active.phoneAway && active.phoneAwayTime) {
-        const msAway = Date.now() - active.phoneAwayTime;
-        if (msAway >= 5000) {
-          killPlant("you left Focus Garden on your phone and your plant died");
-        } else {
-          startLaptopPhoneGraceCountdown(Math.ceil((5000 - msAway) / 1000));
-        }
-      } else {
-        cancelLaptopPhoneGraceCountdown();
       }
     } else if (active && active.status === 'dead') {
       lastDeadSessionId = active.sessionId;
@@ -509,10 +445,16 @@ function logOut() {
 }
 
 /* ================= 2. TAB NAVIGATION ================= */
-function switchTab(tabName) {
+function switchTab(tabName, clickedBtn) {
   const buttons = document.querySelectorAll('.nav-tabs .tab-btn');
   buttons.forEach(btn => btn.classList.remove('active'));
-  event.target.classList.add('active');
+
+  if (clickedBtn) {
+    clickedBtn.classList.add('active');
+  } else {
+    const btn = Array.from(buttons).find(b => b.getAttribute('onclick')?.includes(`'${tabName}'`));
+    if (btn) btn.classList.add('active');
+  }
 
   document.querySelectorAll('.tab-view').forEach(view => view.classList.remove('active-tab'));
 
@@ -546,7 +488,7 @@ function releaseWakeLock() {
   if (wakeLockSentinel !== null) {
     wakeLockSentinel.release().then(() => {
       wakeLockSentinel = null;
-    });
+    }).catch(() => {});
   }
 }
 
@@ -569,7 +511,6 @@ async function startFocus() {
   isFocusing = true;
   currentSessionId = 'sess_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
 
-  initAudio();
   await acquireWakeLock();
 
   sessionStartTime = Date.now();
@@ -590,9 +531,7 @@ async function startFocus() {
         totalSeconds: totalSeconds,
         targetEndTime: targetEndTime,
         plantId: selectedPlantId,
-        plantNickname: getPlantNickname(),
-        phoneAway: false,
-        phoneAwayTime: 0
+        plantNickname: getPlantNickname()
       }
     }).catch(err => console.error("Error broadcasting activeSession:", err));
   }
@@ -600,16 +539,19 @@ async function startFocus() {
   triggerExtensionBlocker(true);
 
   clearInterval(timerInterval);
-  timerInterval = setInterval(() => {
-    const now = Date.now();
-    const msLeft = targetEndTime - now;
-    remainingSeconds = Math.max(0, Math.ceil(msLeft / 1000));
-    updateTimerDisplay();
+  timerInterval = setInterval(tickTimer, 500);
+}
 
-    if (remainingSeconds <= 0) {
-      completeSession();
-    }
-  }, 500);
+function tickTimer() {
+  if (!isFocusing || !targetEndTime) return;
+  const now = Date.now();
+  const msLeft = targetEndTime - now;
+  remainingSeconds = Math.max(0, Math.ceil(msLeft / 1000));
+  updateTimerDisplay();
+
+  if (remainingSeconds <= 0) {
+    completeSession();
+  }
 }
 
 function syncRemoteTimerStart(active) {
@@ -632,16 +574,7 @@ function syncRemoteTimerStart(active) {
   triggerExtensionBlocker(true);
 
   clearInterval(timerInterval);
-  timerInterval = setInterval(() => {
-    const now = Date.now();
-    const msLeft = targetEndTime - now;
-    remainingSeconds = Math.max(0, Math.ceil(msLeft / 1000));
-    updateTimerDisplay();
-
-    if (remainingSeconds <= 0) {
-      completeSession();
-    }
-  }, 500);
+  timerInterval = setInterval(tickTimer, 500);
 }
 
 function syncRemoteTimerStop() {
@@ -650,8 +583,6 @@ function syncRemoteTimerStop() {
   currentSessionId = null;
   targetEndTime = null;
   releaseWakeLock();
-  cancelGracePeriod();
-  cancelLaptopPhoneGraceCountdown();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -668,8 +599,6 @@ function syncRemoteTimerKill(reason) {
   currentSessionId = null;
   targetEndTime = null;
   releaseWakeLock();
-  cancelGracePeriod();
-  cancelLaptopPhoneGraceCountdown();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -691,8 +620,6 @@ async function completeSession() {
   clearInterval(timerInterval);
   isFocusing = false;
   releaseWakeLock();
-  cancelGracePeriod();
-  cancelLaptopPhoneGraceCountdown();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -747,8 +674,6 @@ async function killPlant(reason) {
   clearInterval(timerInterval);
   isFocusing = false;
   releaseWakeLock();
-  cancelGracePeriod();
-  cancelLaptopPhoneGraceCountdown();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -790,101 +715,36 @@ function resetTimer() {
   updateTimerDisplay();
 }
 
-/* ================= 4. MOBILE DETECTION & RECOVERY ================= */
-function startGracePeriod() {
-  if (!isFocusing || isInGracePeriod) return;
-  isInGracePeriod = true;
-  graceSecondsLeft = 5;
+/* ================= 4. WALL-CLOCK RESUME & RECOVERY ================= */
+// Automatically synchronizes remaining time when phone unlocks, screen turns on, or tab refocuses
+function syncTimerWithWallClock() {
+  if (!isFocusing || !targetEndTime) return;
+  const now = Date.now();
+  const msLeft = targetEndTime - now;
 
-  const banner = document.getElementById('graceWarningBanner');
-  if (banner) {
-    banner.style.display = 'block';
-    const counter = document.getElementById('graceSecondsCount');
-    if (counter) counter.innerText = graceSecondsLeft;
+  if (msLeft <= 0) {
+    remainingSeconds = 0;
+    updateTimerDisplay();
+    completeSession();
+  } else {
+    remainingSeconds = Math.ceil(msLeft / 1000);
+    updateTimerDisplay();
   }
-
-  playWarningBeep();
-
-  gracePeriodTimeout = setInterval(() => {
-    graceSecondsLeft--;
-    const counter = document.getElementById('graceSecondsCount');
-    if (counter) counter.innerText = graceSecondsLeft;
-
-    if (graceSecondsLeft <= 0) {
-      cancelGracePeriod();
-      killPlant("you left Focus Garden on your phone and your plant died");
-    }
-  }, 1000);
-}
-
-function cancelGracePeriod() {
-  if (!isInGracePeriod) return;
-  isInGracePeriod = false;
-  clearInterval(gracePeriodTimeout);
-  const banner = document.getElementById('graceWarningBanner');
-  if (banner) banner.style.display = 'none';
-}
-
-function startLaptopPhoneGraceCountdown(secondsLeft) {
-  const banner = document.getElementById('graceWarningBanner');
-  if (banner) {
-    banner.style.display = 'block';
-    const counter = document.getElementById('graceSecondsCount');
-    if (counter) counter.innerText = Math.max(1, secondsLeft);
-  }
-}
-
-function cancelLaptopPhoneGraceCountdown() {
-  const banner = document.getElementById('graceWarningBanner');
-  if (banner) banner.style.display = 'none';
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (!isMobilePhone()) return;
-
-  if (document.hidden) {
-    if (!isFocusing) return;
-
-    if (mobileFocusMode === 'strict') {
-      // In Strict Mode, leaving the tab/app triggers the grace period on both phone and laptop
-      if (currentUser) {
-        db.collection('users').doc(currentUser.toLowerCase()).update({
-          'activeSession.phoneAway': true,
-          'activeSession.phoneAwayTime': Date.now()
-        }).catch(() => {});
-      }
-      startGracePeriod();
-    }
-    // In Pocket Mode, screen-off is allowed; visibility change is ignored while away
-  } else {
-    // Returning to the tab / unlocking screen
-    if (currentUser && mobileFocusMode === 'strict') {
-      db.collection('users').doc(currentUser.toLowerCase()).update({
-        'activeSession.phoneAway': false,
-        'activeSession.phoneAwayTime': 0
-      }).catch(() => {});
-    }
-
-    if (isInGracePeriod) {
-      cancelGracePeriod();
-    }
-
-    // Fast-forward timer to match real-world elapsed time
-    if (isFocusing && targetEndTime) {
-      acquireWakeLock();
-      const now = Date.now();
-      const msLeft = targetEndTime - now;
-
-      if (msLeft <= 0) {
-        remainingSeconds = 0;
-        updateTimerDisplay();
-        completeSession();
-      } else {
-        remainingSeconds = Math.ceil(msLeft / 1000);
-        updateTimerDisplay();
-      }
-    }
+  if (!document.hidden) {
+    acquireWakeLock();
+    syncTimerWithWallClock();
   }
+});
+
+window.addEventListener("focus", () => {
+  syncTimerWithWallClock();
+});
+
+window.addEventListener("pageshow", () => {
+  syncTimerWithWallClock();
 });
 
 function triggerExtensionBlocker(start) {
@@ -1571,7 +1431,7 @@ function renderGroupLeaderboardAndGarden(group) {
       <div class="plant-tooltip">
         <strong>${plantName}</strong> (${statusText})<br>
         👤 grown by: ${item.owner}<br>
-        ⏱️ locked in: ${duration} mins
+        ⏱️️ locked in: ${duration} mins
       </div>
       <img src="${plant.img}" alt="${plant.name}" style="width: ${plantSize}px; height: ${plantSize}px;">
       <span class="tag">${isDead ? '🥀 ' + plantName + ' (' + item.owner + ')' : '🌸 ' + plantName + ' (' + item.owner + ')'}</span>
