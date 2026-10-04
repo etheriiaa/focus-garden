@@ -106,7 +106,6 @@ let gracePeriodTimeout = null;
 let graceBeepInterval = null;
 let graceSecondsLeft = 5;
 let isInGracePeriod = false;
-let hiddenStartTime = null;
 
 /* ================= ACCURATE MOBILE DETECTION ================= */
 function isMobilePhone() {
@@ -360,7 +359,7 @@ function openSettingsModal() {
 
   const adminSection = document.getElementById('adminSettingsSection');
   if (adminSection) {
-    if (currentUser && currentUser.toLowerCase() === 'admin') {
+    if (currentUser && (currentUser.toLowerCase() === 'admin' || currentUser.toLowerCase() === 'dallas')) {
       adminSection.style.display = 'block';
     } else {
       adminSection.style.display = 'none';
@@ -755,7 +754,7 @@ function resetTimer() {
   updateTimerDisplay();
 }
 
-/* --- Grace Period & Mobile Tab/App Switch Penalty --- */
+/* --- Grace Period & Background Throttling Handlers --- */
 function startGracePeriod() {
   if (!isFocusing || isInGracePeriod) return;
   isInGracePeriod = true;
@@ -794,30 +793,19 @@ function cancelGracePeriod() {
 }
 
 document.addEventListener("visibilitychange", () => {
-  // Enforce the 5-second tab-switching death penalty strictly on mobile devices
   if (!isMobilePhone()) return;
 
   if (document.hidden) {
     if (isFocusing) {
-      hiddenStartTime = Date.now();
       startGracePeriod();
     }
   } else {
-    if (isFocusing && hiddenStartTime) {
-      const secondsAway = (Date.now() - hiddenStartTime) / 1000;
-      hiddenStartTime = null;
-
-      if (secondsAway >= 5) {
-        cancelGracePeriod();
-        killPlant(`you left the app for ${Math.round(secondsAway)}s and your plant died`);
-        return;
-      }
-    }
-
+    // Returning to the tab: cancel grace period countdown
     if (isInGracePeriod) {
       cancelGracePeriod();
     }
 
+    // Sync wall-clock timer so locking phone screen allows session to continue
     if (isFocusing && targetEndTime) {
       acquireWakeLock();
       const now = Date.now();
@@ -837,7 +825,6 @@ document.addEventListener("visibilitychange", () => {
 
 window.addEventListener("pagehide", () => {
   if (isMobilePhone() && isFocusing) {
-    hiddenStartTime = Date.now();
     startGracePeriod();
   }
 });
@@ -1559,9 +1546,9 @@ function startSundayCountdownTimer() {
   setInterval(updateCountdown, 60000);
 }
 
-/* ================= 10. ADMIN FUNCTIONS (DALLAS ONLY) ================= */
+/* ================= 10. ADMIN FUNCTIONS ================= */
 async function openAdminModal() {
-  if (!currentUser || currentUser.toLowerCase() !== 'admin') return;
+  if (!currentUser || (currentUser.toLowerCase() !== 'admin' && currentUser.toLowerCase() !== 'dallas')) return;
   closeSettingsModal();
   document.getElementById('adminModal').style.display = 'flex';
   await loadAdminUsers();
