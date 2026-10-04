@@ -228,6 +228,14 @@
             <input type="text" id="plantNicknameInput" placeholder="e.g. natalie" maxlength="20">
           </div>
 
+          <div class="timer-field-row" style="justify-content: space-between;">
+          <label for="mobileModeSelect">mobile mode:</label>
+          <select id="mobileModeSelect" onchange="onMobileModeChange()" style="width: 140px; padding: 6px 10px; border-radius: 12px; font-weight: 600; border: 1.5px solid #d4ded3;">
+            <option value="strict">strict</option>
+            <option value="pocket">chill</option>
+          </select>
+        </div>
+
           <div class="timer-field-row">
             <label for="durationInput">session length:</label>
             <input type="number" id="durationInput" min="1" max="180" value="10" onchange="onCustomTimeChange()">

@@ -106,11 +106,7 @@ let audioCtx = null;
 let gracePeriodTimeout = null;
 let graceSecondsLeft = 5;
 let isInGracePeriod = false;
-
-// Mobile Hardware Touch Tracking
-let lastScreenTouchTime = 0;
-let wasAppSwitchedAway = false;
-let phoneAwayGraceTimeout = null;
+let mobileFocusMode = localStorage.getItem('mobileFocusMode') || 'strict';
 
 /* ================= ACCURATE MOBILE DETECTION ================= */
 function isMobilePhone() {
@@ -120,11 +116,6 @@ function isMobilePhone() {
   const isTouchScreen = navigator.maxTouchPoints > 1 && window.innerWidth <= 1024;
   return isIOS || isAndroid || isTouchScreen;
 }
-
-// Track touches to distinguish physical power button press vs screen navigation
-window.addEventListener('touchstart', () => { lastScreenTouchTime = Date.now(); }, { passive: true, capture: true });
-window.addEventListener('touchend', () => { lastScreenTouchTime = Date.now(); }, { passive: true, capture: true });
-window.addEventListener('pointerdown', () => { lastScreenTouchTime = Date.now(); }, { passive: true, capture: true });
 
 /* ================= TOAST NOTIFICATION POPUPS ================= */
 function showToast(icon, title, message, type = 'grown') {
@@ -180,12 +171,22 @@ function playWarningBeep() {
 /* ================= INITIALIZATION ================= */
 window.addEventListener('DOMContentLoaded', () => {
   loadBlockerSettingsUI();
+  const modeSelect = document.getElementById('mobileModeSelect');
+  if (modeSelect) modeSelect.value = mobileFocusMode;
+
   if (currentUser) {
     attachFirebaseListeners(currentUser);
     showMainApp();
   }
   startSundayCountdownTimer();
 });
+
+function onMobileModeChange() {
+  const select = document.getElementById('mobileModeSelect');
+  if (!select) return;
+  mobileFocusMode = select.value;
+  localStorage.setItem('mobileFocusMode', mobileFocusMode);
+}
 
 // Listen for kill commands dispatched from the Chrome extension
 window.addEventListener("message", (event) => {
@@ -265,13 +266,13 @@ function attachFirebaseListeners(username) {
         }
       }
 
-      // Check if phone reported switching to another app
+      // If phone reported leaving the app in strict mode, mirror the death countdown to desktop
       if (!isMobilePhone() && active.phoneAway && active.phoneAwayTime) {
         const msAway = Date.now() - active.phoneAwayTime;
         if (msAway >= 5000) {
           killPlant("you left Focus Garden on your phone and your plant died");
         } else {
-          startLaptopPhoneGraceCountdown(5 - Math.floor(msAway / 1000));
+          startLaptopPhoneGraceCountdown(Math.ceil((5000 - msAway) / 1000));
         }
       } else {
         cancelLaptopPhoneGraceCountdown();
@@ -536,7 +537,7 @@ async function acquireWakeLock() {
     try {
       wakeLockSentinel = await navigator.wakeLock.request('screen');
     } catch (err) {
-      console.log('Screen Wake Lock could not be acquired:', err);
+      console.log('Screen Wake Lock standby:', err);
     }
   }
 }
@@ -567,7 +568,6 @@ async function startFocus() {
   if (isFocusing) return;
   isFocusing = true;
   currentSessionId = 'sess_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-  wasAppSwitchedAway = false;
 
   initAudio();
   await acquireWakeLock();
@@ -579,7 +579,7 @@ async function startFocus() {
   document.getElementById('giveUpBtn').disabled = false;
   document.getElementById('durationInput').disabled = true;
   document.getElementById('plantNicknameInput').disabled = true;
-  document.getElementById('timerStatus').innerText = "locking in! don't give up or visit prohibited sites";
+  document.getElementById('timerStatus').innerText = "locking in! stay focused on your work";
 
   if (currentUser) {
     db.collection('users').doc(currentUser.toLowerCase()).update({
@@ -618,7 +618,6 @@ function syncRemoteTimerStart(active) {
   totalSeconds = active.totalSeconds;
   targetEndTime = active.targetEndTime;
   selectedPlantId = active.plantId || 'sprout';
-  wasAppSwitchedAway = false;
 
   acquireWakeLock();
   updateSelectedPlantDisplay();
@@ -788,11 +787,10 @@ function resetTimer() {
   remainingSeconds = totalSeconds;
   targetEndTime = null;
   currentSessionId = null;
-  wasAppSwitchedAway = false;
   updateTimerDisplay();
 }
 
-/* ================= 4. MOBILE SCREEN-OFF & APP-SWITCH DETECTION ================= */
+/* ================= 4. MOBILE DETECTION & RECOVERY ================= */
 function startGracePeriod() {
   if (!isFocusing || isInGracePeriod) return;
   isInGracePeriod = true;
@@ -814,7 +812,7 @@ function startGracePeriod() {
 
     if (graceSecondsLeft <= 0) {
       cancelGracePeriod();
-      killPlant("you left Focus Garden for more than 5 seconds and your plant died");
+      killPlant("you left Focus Garden on your phone and your plant died");
     }
   }, 1000);
 }
@@ -847,30 +845,20 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     if (!isFocusing) return;
 
-    // Distinguish screen-off (power button) from app-switching (screen touch)
-    const timeSinceLastTouch = Date.now() - lastScreenTouchTime;
-
-    if (timeSinceLastTouch < 1500) {
-      // Screen was actively touched right before leaving = APP SWITCH or TAB SWITCH
-      wasAppSwitchedAway = true;
-      const awayTime = Date.now();
-
-      // Immediately flag to Firestore so laptop terminates if phone remains away
+    if (mobileFocusMode === 'strict') {
+      // In Strict Mode, leaving the tab/app triggers the grace period on both phone and laptop
       if (currentUser) {
         db.collection('users').doc(currentUser.toLowerCase()).update({
           'activeSession.phoneAway': true,
-          'activeSession.phoneAwayTime': awayTime
+          'activeSession.phoneAwayTime': Date.now()
         }).catch(() => {});
       }
-
       startGracePeriod();
-    } else {
-      // Screen was turned off without a screen touch (power button or auto-lock)
-      wasAppSwitchedAway = false;
     }
+    // In Pocket Mode, screen-off is allowed; visibility change is ignored while away
   } else {
-    // Screen turned back on or returned to tab
-    if (currentUser && wasAppSwitchedAway) {
+    // Returning to the tab / unlocking screen
+    if (currentUser && mobileFocusMode === 'strict') {
       db.collection('users').doc(currentUser.toLowerCase()).update({
         'activeSession.phoneAway': false,
         'activeSession.phoneAwayTime': 0
@@ -881,9 +869,7 @@ document.addEventListener("visibilitychange", () => {
       cancelGracePeriod();
     }
 
-    wasAppSwitchedAway = false;
-
-    // Fast-forward timer to real-world target time
+    // Fast-forward timer to match real-world elapsed time
     if (isFocusing && targetEndTime) {
       acquireWakeLock();
       const now = Date.now();
