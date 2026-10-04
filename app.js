@@ -104,9 +104,13 @@ let wakeLockSentinel = null;
 
 let audioCtx = null;
 let gracePeriodTimeout = null;
-let graceBeepInterval = null;
 let graceSecondsLeft = 5;
 let isInGracePeriod = false;
+
+// Mobile Hardware Touch Tracking
+let lastScreenTouchTime = 0;
+let wasAppSwitchedAway = false;
+let phoneAwayGraceTimeout = null;
 
 /* ================= ACCURATE MOBILE DETECTION ================= */
 function isMobilePhone() {
@@ -116,6 +120,11 @@ function isMobilePhone() {
   const isTouchScreen = navigator.maxTouchPoints > 1 && window.innerWidth <= 1024;
   return isIOS || isAndroid || isTouchScreen;
 }
+
+// Track touches to distinguish physical power button press vs screen navigation
+window.addEventListener('touchstart', () => { lastScreenTouchTime = Date.now(); }, { passive: true, capture: true });
+window.addEventListener('touchend', () => { lastScreenTouchTime = Date.now(); }, { passive: true, capture: true });
+window.addEventListener('pointerdown', () => { lastScreenTouchTime = Date.now(); }, { passive: true, capture: true });
 
 /* ================= TOAST NOTIFICATION POPUPS ================= */
 function showToast(icon, title, message, type = 'grown') {
@@ -254,6 +263,18 @@ function attachFirebaseListeners(username) {
         if (!isFocusing || currentSessionId !== active.sessionId) {
           syncRemoteTimerStart(active);
         }
+      }
+
+      // Check if phone reported switching to another app
+      if (!isMobilePhone() && active.phoneAway && active.phoneAwayTime) {
+        const msAway = Date.now() - active.phoneAwayTime;
+        if (msAway >= 5000) {
+          killPlant("you left Focus Garden on your phone and your plant died");
+        } else {
+          startLaptopPhoneGraceCountdown(5 - Math.floor(msAway / 1000));
+        }
+      } else {
+        cancelLaptopPhoneGraceCountdown();
       }
     } else if (active && active.status === 'dead') {
       lastDeadSessionId = active.sessionId;
@@ -546,6 +567,7 @@ async function startFocus() {
   if (isFocusing) return;
   isFocusing = true;
   currentSessionId = 'sess_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+  wasAppSwitchedAway = false;
 
   initAudio();
   await acquireWakeLock();
@@ -557,7 +579,7 @@ async function startFocus() {
   document.getElementById('giveUpBtn').disabled = false;
   document.getElementById('durationInput').disabled = true;
   document.getElementById('plantNicknameInput').disabled = true;
-  document.getElementById('timerStatus').innerText = "locking in! screen can sleep or turn off, but don't give up";
+  document.getElementById('timerStatus').innerText = "locking in! don't give up or visit prohibited sites";
 
   if (currentUser) {
     db.collection('users').doc(currentUser.toLowerCase()).update({
@@ -568,7 +590,9 @@ async function startFocus() {
         totalSeconds: totalSeconds,
         targetEndTime: targetEndTime,
         plantId: selectedPlantId,
-        plantNickname: getPlantNickname()
+        plantNickname: getPlantNickname(),
+        phoneAway: false,
+        phoneAwayTime: 0
       }
     }).catch(err => console.error("Error broadcasting activeSession:", err));
   }
@@ -594,6 +618,7 @@ function syncRemoteTimerStart(active) {
   totalSeconds = active.totalSeconds;
   targetEndTime = active.targetEndTime;
   selectedPlantId = active.plantId || 'sprout';
+  wasAppSwitchedAway = false;
 
   acquireWakeLock();
   updateSelectedPlantDisplay();
@@ -627,6 +652,7 @@ function syncRemoteTimerStop() {
   targetEndTime = null;
   releaseWakeLock();
   cancelGracePeriod();
+  cancelLaptopPhoneGraceCountdown();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -644,6 +670,7 @@ function syncRemoteTimerKill(reason) {
   targetEndTime = null;
   releaseWakeLock();
   cancelGracePeriod();
+  cancelLaptopPhoneGraceCountdown();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -666,6 +693,7 @@ async function completeSession() {
   isFocusing = false;
   releaseWakeLock();
   cancelGracePeriod();
+  cancelLaptopPhoneGraceCountdown();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -721,6 +749,7 @@ async function killPlant(reason) {
   isFocusing = false;
   releaseWakeLock();
   cancelGracePeriod();
+  cancelLaptopPhoneGraceCountdown();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -759,10 +788,11 @@ function resetTimer() {
   remainingSeconds = totalSeconds;
   targetEndTime = null;
   currentSessionId = null;
+  wasAppSwitchedAway = false;
   updateTimerDisplay();
 }
 
-/* ================= 4. MOBILE TAB-SWITCH & SCREEN-OFF HANDLERS ================= */
+/* ================= 4. MOBILE SCREEN-OFF & APP-SWITCH DETECTION ================= */
 function startGracePeriod() {
   if (!isFocusing || isInGracePeriod) return;
   isInGracePeriod = true;
@@ -777,7 +807,6 @@ function startGracePeriod() {
 
   playWarningBeep();
 
-  // Active countdown while device screen is active and user is in another tab/app
   gracePeriodTimeout = setInterval(() => {
     graceSecondsLeft--;
     const counter = document.getElementById('graceSecondsCount');
@@ -785,7 +814,7 @@ function startGracePeriod() {
 
     if (graceSecondsLeft <= 0) {
       cancelGracePeriod();
-      killPlant("you left the tab for more than 5 seconds and your plant died");
+      killPlant("you left Focus Garden for more than 5 seconds and your plant died");
     }
   }, 1000);
 }
@@ -794,7 +823,20 @@ function cancelGracePeriod() {
   if (!isInGracePeriod) return;
   isInGracePeriod = false;
   clearInterval(gracePeriodTimeout);
-  clearInterval(graceBeepInterval);
+  const banner = document.getElementById('graceWarningBanner');
+  if (banner) banner.style.display = 'none';
+}
+
+function startLaptopPhoneGraceCountdown(secondsLeft) {
+  const banner = document.getElementById('graceWarningBanner');
+  if (banner) {
+    banner.style.display = 'block';
+    const counter = document.getElementById('graceSecondsCount');
+    if (counter) counter.innerText = Math.max(1, secondsLeft);
+  }
+}
+
+function cancelLaptopPhoneGraceCountdown() {
   const banner = document.getElementById('graceWarningBanner');
   if (banner) banner.style.display = 'none';
 }
@@ -803,17 +845,45 @@ document.addEventListener("visibilitychange", () => {
   if (!isMobilePhone()) return;
 
   if (document.hidden) {
-    // Tab lost focus (switched tabs, switched apps, or screen turned off)
-    if (isFocusing) {
+    if (!isFocusing) return;
+
+    // Distinguish screen-off (power button) from app-switching (screen touch)
+    const timeSinceLastTouch = Date.now() - lastScreenTouchTime;
+
+    if (timeSinceLastTouch < 1500) {
+      // Screen was actively touched right before leaving = APP SWITCH or TAB SWITCH
+      wasAppSwitchedAway = true;
+      const awayTime = Date.now();
+
+      // Immediately flag to Firestore so laptop terminates if phone remains away
+      if (currentUser) {
+        db.collection('users').doc(currentUser.toLowerCase()).update({
+          'activeSession.phoneAway': true,
+          'activeSession.phoneAwayTime': awayTime
+        }).catch(() => {});
+      }
+
       startGracePeriod();
+    } else {
+      // Screen was turned off without a screen touch (power button or auto-lock)
+      wasAppSwitchedAway = false;
     }
   } else {
-    // Tab regained focus (user returned to the tab or unlocked phone)
+    // Screen turned back on or returned to tab
+    if (currentUser && wasAppSwitchedAway) {
+      db.collection('users').doc(currentUser.toLowerCase()).update({
+        'activeSession.phoneAway': false,
+        'activeSession.phoneAwayTime': 0
+      }).catch(() => {});
+    }
+
     if (isInGracePeriod) {
       cancelGracePeriod();
     }
 
-    // Sync wall-clock timer so phone screen-off allows sessions to continue
+    wasAppSwitchedAway = false;
+
+    // Fast-forward timer to real-world target time
     if (isFocusing && targetEndTime) {
       acquireWakeLock();
       const now = Date.now();
@@ -828,12 +898,6 @@ document.addEventListener("visibilitychange", () => {
         updateTimerDisplay();
       }
     }
-  }
-});
-
-window.addEventListener("pagehide", () => {
-  if (isMobilePhone() && isFocusing) {
-    startGracePeriod();
   }
 });
 

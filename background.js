@@ -1,4 +1,3 @@
-// Active blocking state
 let isBlocking = false;
 let blockerMode = "blacklist";
 let blockerSites = [];
@@ -11,7 +10,7 @@ chrome.storage.local.get(["blockerMode", "blockerSites"], (res) => {
   }
 });
 
-// Clicking sprout toolbar icon focuses or opens Focus Garden
+// Focus or open Focus Garden tab on sprout toolbar click
 chrome.action.onClicked.addListener(() => {
   const targetUrl = "https://etheriiaa.github.io/focus-garden/";
 
@@ -47,11 +46,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// Central URL check: redirects to blocked.html and triggers kill on Focus Garden
+// Central URL enforcement
 function checkAndEnforceUrl(urlStr, tabId) {
   if (!isBlocking || !urlStr) return;
 
-  // Ignore internal Chrome protocols and Focus Garden itself
+  // Always ignore internal protocols and Focus Garden itself
   if (
     urlStr.startsWith("chrome://") || 
     urlStr.startsWith("chrome-extension://") || 
@@ -80,17 +79,19 @@ function checkAndEnforceUrl(urlStr, tabId) {
       const clean = site.replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
       return clean && (hostname === clean || hostname.endsWith("." + clean));
     });
+
     if (isBlacklisted) {
       shouldBlock = true;
       reason = `you visited ${hostname} (blacklisted) and your plant died`;
     }
   } else if (blockerMode === "whitelist") {
-    // Essential infrastructure allowed by default
-    const defaultAllowed = ["gstatic.com", "googleapis.com", "firebaseio.com", "github.io"];
+    // Whitelist mode: Allow user domains + vital developer and research services
+    const defaultAllowed = ["gstatic.com", "googleapis.com", "firebaseio.com", "github.io", "google.com"];
     const isAllowed = [...blockerSites, ...defaultAllowed].some(site => {
       const clean = site.replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
       return clean && (hostname === clean || hostname.endsWith("." + clean));
     });
+
     if (!isAllowed) {
       shouldBlock = true;
       reason = `you visited ${hostname} (not on whitelist) and your plant died`;
@@ -98,14 +99,14 @@ function checkAndEnforceUrl(urlStr, tabId) {
   }
 
   if (shouldBlock) {
-    isBlocking = false; // Turn off blocking so the user can see blocked.html and Focus Garden
+    isBlocking = false;
     const blockedUrl = chrome.runtime.getURL("blocked.html") + "?site=" + encodeURIComponent(hostname);
     chrome.tabs.update(tabId, { url: blockedUrl });
     notifyFocusGardenKill(reason);
   }
 }
 
-// Dispatches the kill command to the open Focus Garden tab
+// Dispatches the kill event to all open Focus Garden tabs
 function notifyFocusGardenKill(reason) {
   chrome.tabs.query({}, (tabs) => {
     tabs.forEach(t => {
@@ -119,21 +120,21 @@ function notifyFocusGardenKill(reason) {
   });
 }
 
-// Intercepts navigation before network requests initiate
+// Navigation listener: catches destination before page loads
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId === 0) {
     checkAndEnforceUrl(details.url, details.tabId);
   }
 });
 
-// Intercepts tab URL updates
+// Tab update listener
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url) {
     checkAndEnforceUrl(changeInfo.url, tabId);
   }
 });
 
-// Intercepts switching into a tab that already loaded a prohibited site
+// Tab switch listener: catches switching to already-loaded prohibited tabs
 chrome.tabs.onActivated.addListener((activeInfo) => {
   chrome.tabs.get(activeInfo.tabId, (tab) => {
     if (tab && tab.url) {
