@@ -103,6 +103,10 @@ let isFocusing = false;
 let wakeLockSentinel = null;
 
 let audioCtx = null;
+let gracePeriodTimeout = null;
+let graceBeepInterval = null;
+let graceSecondsLeft = 5;
+let isInGracePeriod = false;
 
 /* ================= ACCURATE MOBILE DETECTION ================= */
 function isMobilePhone() {
@@ -246,7 +250,6 @@ function attachFirebaseListeners(username) {
     // --- TWO-WAY CROSS-DEVICE TIMER SYNC ---
     const active = data.activeSession;
     if (active && active.status === 'running') {
-      // Prevent resurrecting a session that this client already knows is dead
       if (active.sessionId !== lastDeadSessionId) {
         if (!isFocusing || currentSessionId !== active.sessionId) {
           syncRemoteTimerStart(active);
@@ -623,6 +626,7 @@ function syncRemoteTimerStop() {
   currentSessionId = null;
   targetEndTime = null;
   releaseWakeLock();
+  cancelGracePeriod();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -639,6 +643,7 @@ function syncRemoteTimerKill(reason) {
   currentSessionId = null;
   targetEndTime = null;
   releaseWakeLock();
+  cancelGracePeriod();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -660,6 +665,7 @@ async function completeSession() {
   clearInterval(timerInterval);
   isFocusing = false;
   releaseWakeLock();
+  cancelGracePeriod();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -714,6 +720,7 @@ async function killPlant(reason) {
   clearInterval(timerInterval);
   isFocusing = false;
   releaseWakeLock();
+  cancelGracePeriod();
   triggerExtensionBlocker(false);
 
   document.getElementById('startBtn').disabled = false;
@@ -755,24 +762,78 @@ function resetTimer() {
   updateTimerDisplay();
 }
 
-/* ================= 4. MOBILE SCREEN-OFF RECOVERY ================= */
+/* ================= 4. MOBILE TAB-SWITCH & SCREEN-OFF HANDLERS ================= */
+function startGracePeriod() {
+  if (!isFocusing || isInGracePeriod) return;
+  isInGracePeriod = true;
+  graceSecondsLeft = 5;
+
+  const banner = document.getElementById('graceWarningBanner');
+  if (banner) {
+    banner.style.display = 'block';
+    const counter = document.getElementById('graceSecondsCount');
+    if (counter) counter.innerText = graceSecondsLeft;
+  }
+
+  playWarningBeep();
+
+  // Active countdown while device screen is active and user is in another tab/app
+  gracePeriodTimeout = setInterval(() => {
+    graceSecondsLeft--;
+    const counter = document.getElementById('graceSecondsCount');
+    if (counter) counter.innerText = graceSecondsLeft;
+
+    if (graceSecondsLeft <= 0) {
+      cancelGracePeriod();
+      killPlant("you left the tab for more than 5 seconds and your plant died");
+    }
+  }, 1000);
+}
+
+function cancelGracePeriod() {
+  if (!isInGracePeriod) return;
+  isInGracePeriod = false;
+  clearInterval(gracePeriodTimeout);
+  clearInterval(graceBeepInterval);
+  const banner = document.getElementById('graceWarningBanner');
+  if (banner) banner.style.display = 'none';
+}
+
 document.addEventListener("visibilitychange", () => {
   if (!isMobilePhone()) return;
 
-  // When returning to the app after the screen was off or locked:
-  if (!document.hidden && isFocusing && targetEndTime) {
-    acquireWakeLock();
-    const now = Date.now();
-    const msLeft = targetEndTime - now;
-
-    if (msLeft <= 0) {
-      remainingSeconds = 0;
-      updateTimerDisplay();
-      completeSession();
-    } else {
-      remainingSeconds = Math.ceil(msLeft / 1000);
-      updateTimerDisplay();
+  if (document.hidden) {
+    // Tab lost focus (switched tabs, switched apps, or screen turned off)
+    if (isFocusing) {
+      startGracePeriod();
     }
+  } else {
+    // Tab regained focus (user returned to the tab or unlocked phone)
+    if (isInGracePeriod) {
+      cancelGracePeriod();
+    }
+
+    // Sync wall-clock timer so phone screen-off allows sessions to continue
+    if (isFocusing && targetEndTime) {
+      acquireWakeLock();
+      const now = Date.now();
+      const msLeft = targetEndTime - now;
+
+      if (msLeft <= 0) {
+        remainingSeconds = 0;
+        updateTimerDisplay();
+        completeSession();
+      } else {
+        remainingSeconds = Math.ceil(msLeft / 1000);
+        updateTimerDisplay();
+      }
+    }
+  }
+});
+
+window.addEventListener("pagehide", () => {
+  if (isMobilePhone() && isFocusing) {
+    startGracePeriod();
   }
 });
 
