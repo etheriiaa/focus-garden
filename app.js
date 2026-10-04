@@ -91,6 +91,7 @@ let isInitialUserLoad = true;
 // Device & Multi-Device Session State
 const clientDeviceId = 'dev_' + Math.random().toString(36).substring(2, 9);
 let currentSessionId = null;
+let lastDeadSessionId = null;
 
 // Wall-clock & Anti-Cheat State
 let totalSeconds = 600;
@@ -102,10 +103,6 @@ let isFocusing = false;
 let wakeLockSentinel = null;
 
 let audioCtx = null;
-let gracePeriodTimeout = null;
-let graceBeepInterval = null;
-let graceSecondsLeft = 5;
-let isInGracePeriod = false;
 
 /* ================= ACCURATE MOBILE DETECTION ================= */
 function isMobilePhone() {
@@ -163,7 +160,7 @@ function playWarningBeep() {
     osc.start();
     osc.stop(audioCtx.currentTime + 0.2);
   } catch (e) {
-    console.log("Audio not allowed or initialized yet:", e);
+    console.log("Audio standby:", e);
   }
 }
 
@@ -249,15 +246,19 @@ function attachFirebaseListeners(username) {
     // --- TWO-WAY CROSS-DEVICE TIMER SYNC ---
     const active = data.activeSession;
     if (active && active.status === 'running') {
-      if (!isFocusing || currentSessionId !== active.sessionId) {
-        syncRemoteTimerStart(active);
+      // Prevent resurrecting a session that this client already knows is dead
+      if (active.sessionId !== lastDeadSessionId) {
+        if (!isFocusing || currentSessionId !== active.sessionId) {
+          syncRemoteTimerStart(active);
+        }
       }
     } else if (active && active.status === 'dead') {
+      lastDeadSessionId = active.sessionId;
       if (isFocusing) {
         syncRemoteTimerKill(active.reason);
       }
     } else {
-      if (isFocusing) {
+      if (isFocusing && (!active || active.status === 'idle' || active.status === 'completed')) {
         syncRemoteTimerStop();
       }
     }
@@ -553,7 +554,7 @@ async function startFocus() {
   document.getElementById('giveUpBtn').disabled = false;
   document.getElementById('durationInput').disabled = true;
   document.getElementById('plantNicknameInput').disabled = true;
-  document.getElementById('timerStatus').innerText = "locking in! don't leave or switch apps unless you want your plant to die";
+  document.getElementById('timerStatus').innerText = "locking in! screen can sleep or turn off, but don't give up";
 
   if (currentUser) {
     db.collection('users').doc(currentUser.toLowerCase()).update({
@@ -658,7 +659,6 @@ function getPlantNickname() {
 async function completeSession() {
   clearInterval(timerInterval);
   isFocusing = false;
-  cancelGracePeriod();
   releaseWakeLock();
   triggerExtensionBlocker(false);
 
@@ -713,7 +713,6 @@ async function killPlant(reason) {
   if (!isFocusing) return;
   clearInterval(timerInterval);
   isFocusing = false;
-  cancelGracePeriod();
   releaseWakeLock();
   triggerExtensionBlocker(false);
 
@@ -722,6 +721,8 @@ async function killPlant(reason) {
   document.getElementById('durationInput').disabled = false;
   document.getElementById('plantNicknameInput').disabled = false;
   document.getElementById('timerStatus').innerText = reason;
+
+  lastDeadSessionId = currentSessionId;
 
   const plantNickname = getPlantNickname();
   const elapsedSeconds = Math.max(0, totalSeconds - remainingSeconds);
@@ -754,78 +755,24 @@ function resetTimer() {
   updateTimerDisplay();
 }
 
-/* --- Grace Period & Background Throttling Handlers --- */
-function startGracePeriod() {
-  if (!isFocusing || isInGracePeriod) return;
-  isInGracePeriod = true;
-  graceSecondsLeft = 5;
-
-  const banner = document.getElementById('graceWarningBanner');
-  if (banner) {
-    banner.style.display = 'block';
-    document.getElementById('graceSecondsCount').innerText = graceSecondsLeft;
-  }
-
-  playWarningBeep();
-  graceBeepInterval = setInterval(() => {
-    playWarningBeep();
-  }, 1000);
-
-  gracePeriodTimeout = setInterval(() => {
-    graceSecondsLeft--;
-    const counter = document.getElementById('graceSecondsCount');
-    if (counter) counter.innerText = graceSecondsLeft;
-
-    if (graceSecondsLeft <= 0) {
-      cancelGracePeriod();
-      killPlant("you left the tab for more than 5 seconds and your plant died");
-    }
-  }, 1000);
-}
-
-function cancelGracePeriod() {
-  if (!isInGracePeriod) return;
-  isInGracePeriod = false;
-  clearInterval(gracePeriodTimeout);
-  clearInterval(graceBeepInterval);
-  const banner = document.getElementById('graceWarningBanner');
-  if (banner) banner.style.display = 'none';
-}
-
+/* ================= 4. MOBILE SCREEN-OFF RECOVERY ================= */
 document.addEventListener("visibilitychange", () => {
   if (!isMobilePhone()) return;
 
-  if (document.hidden) {
-    if (isFocusing) {
-      startGracePeriod();
-    }
-  } else {
-    // Returning to the tab: cancel grace period countdown
-    if (isInGracePeriod) {
-      cancelGracePeriod();
-    }
+  // When returning to the app after the screen was off or locked:
+  if (!document.hidden && isFocusing && targetEndTime) {
+    acquireWakeLock();
+    const now = Date.now();
+    const msLeft = targetEndTime - now;
 
-    // Sync wall-clock timer so locking phone screen allows session to continue
-    if (isFocusing && targetEndTime) {
-      acquireWakeLock();
-      const now = Date.now();
-      const msLeft = targetEndTime - now;
-
-      if (msLeft <= 0) {
-        remainingSeconds = 0;
-        updateTimerDisplay();
-        completeSession();
-      } else {
-        remainingSeconds = Math.ceil(msLeft / 1000);
-        updateTimerDisplay();
-      }
+    if (msLeft <= 0) {
+      remainingSeconds = 0;
+      updateTimerDisplay();
+      completeSession();
+    } else {
+      remainingSeconds = Math.ceil(msLeft / 1000);
+      updateTimerDisplay();
     }
-  }
-});
-
-window.addEventListener("pagehide", () => {
-  if (isMobilePhone() && isFocusing) {
-    startGracePeriod();
   }
 });
 
@@ -842,7 +789,7 @@ function triggerExtensionBlocker(start) {
   }, "*");
 }
 
-/* ================= 4. PLANT PICKER ================= */
+/* ================= 5. PLANT PICKER ================= */
 function openPlantPicker() {
   if (isFocusing) return;
   const grid = document.getElementById('pickerGrid');
@@ -882,7 +829,7 @@ function updateSelectedPlantDisplay() {
   document.getElementById('timerPlantName').innerText = plant.name;
 }
 
-/* ================= 5. TIMESTAMP & SIZING HELPERS ================= */
+/* ================= 6. TIMESTAMP & SIZING HELPERS ================= */
 function parseTimestamp(ts) {
   if (!ts) return 0;
   if (typeof ts === 'number') return ts;
@@ -918,7 +865,7 @@ function getRandomPlantSize(timeframe) {
   return 60;
 }
 
-/* ================= 6. GARDEN DATA SYNCING ================= */
+/* ================= 7. GARDEN DATA SYNCING ================= */
 async function recordPlantOutcome(plantId, nickname, status, earnedLeaves, minutes, updatedBankSeconds) {
   const now = Date.now();
   const entryId = 'entry_' + now + '_' + Math.floor(Math.random() * 1000);
@@ -1040,7 +987,7 @@ function renderGarden(timeframe) {
   });
 }
 
-/* ================= 7. STATS MODAL & CHARTS ================= */
+/* ================= 8. STATS MODAL & CHARTS ================= */
 function openStatsModal() {
   document.getElementById('statsModal').style.display = 'flex';
   renderGardenStatsAndChart(currentStatsTimeframe);
@@ -1160,7 +1107,7 @@ function renderGardenStatsAndChart(timeframe) {
   });
 }
 
-/* ================= 8. NURSERY ================= */
+/* ================= 9. NURSERY ================= */
 function renderNursery() {
   const unlockedGrid = document.getElementById('unlockedPlantsGrid');
   const lockedGrid = document.getElementById('lockedPlantsGrid');
@@ -1209,7 +1156,7 @@ function updateCurrencyDisplay() {
   document.getElementById('leafCount').innerText = leaves;
 }
 
-/* ================= 9. CLOUD FRIENDS & GROUPS ================= */
+/* ================= 10. CLOUD FRIENDS & GROUPS ================= */
 function renderFriendsList() {
   const ul = document.getElementById('friendsList');
   ul.innerHTML = '';
@@ -1546,7 +1493,7 @@ function startSundayCountdownTimer() {
   setInterval(updateCountdown, 60000);
 }
 
-/* ================= 10. ADMIN FUNCTIONS ================= */
+/* ================= 11. ADMIN FUNCTIONS ================= */
 async function openAdminModal() {
   if (!currentUser || (currentUser.toLowerCase() !== 'admin' && currentUser.toLowerCase() !== 'dallas')) return;
   closeSettingsModal();
