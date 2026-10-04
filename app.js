@@ -141,7 +141,7 @@ window.addEventListener("message", (event) => {
   if (event.source !== window) return;
   if (event.data && event.data.type === "FOCUS_GARDEN_KILL") {
     if (isFocusing) {
-      killPlant(event.data.reason || "you visited a prohibited website and your plant died");
+      killPlant(event.data.reason || "your poor plant died because you went on that site");
     }
   }
 });
@@ -272,7 +272,7 @@ function attachFirebaseListeners(username) {
                 if (item.status === 'grown') {
                   showToast('🌸', 'plant bloomed!', `${item.owner} successfully grew "${plantLabel}" in ${groupData.name}!`, 'grown');
                 } else if (item.status === 'dead' || item.status === 'withered') {
-                  showToast('🥀', 'plant died...', `${item.owner}'s "${plantLabel}" died in ${groupData.name}.`, 'dead');
+                  showToast('🥀', 'plant died...', `${item.owner} killed "${plantLabel}" in ${groupData.name}. boo!`, 'dead');
                 }
               }
             }
@@ -362,8 +362,8 @@ function setBlockerMode(mode) {
 function loadBlockerSettingsUI() {
   const mode = localStorage.getItem('blockerMode') || 'blacklist';
   const defaultSites = mode === 'blacklist' 
-    ? "youtube.com, reddit.com, instagram.com, tiktok.com, twitter.com, netflix.com"
-    : "instagram.com, google.com, docs.google.com, canvas.instructure.com, wikipedia.org";
+    ? "youtube.com, instagram.com, netflix.com, tiktok.com"
+    : "google.com, docs.google.com, canvas.instructure.com, wikipedia.org";
   
   const savedSites = localStorage.getItem('blockerSites') || defaultSites;
   const textarea = document.getElementById('blockerSitesTextarea');
@@ -393,7 +393,7 @@ async function updateUsername() {
 
   const check = await newDocRef.get();
   if (check.exists) {
-    alert(`The username "${newName}" is already taken!`);
+    alert(`the username "${newName}" is already taken!`);
     return;
   }
 
@@ -520,7 +520,7 @@ async function startFocus() {
   document.getElementById('giveUpBtn').disabled = false;
   document.getElementById('durationInput').disabled = true;
   document.getElementById('plantNicknameInput').disabled = true;
-  document.getElementById('timerStatus').innerText = "locking in! stay focused on your work";
+  document.getElementById('timerStatus').innerText = "locking in! you're not gonna kill your plant, are you?";
 
   if (currentUser) {
     db.collection('users').doc(currentUser.toLowerCase()).update({
@@ -569,7 +569,7 @@ function syncRemoteTimerStart(active) {
   document.getElementById('durationInput').disabled = true;
   document.getElementById('plantNicknameInput').disabled = true;
   document.getElementById('plantNicknameInput').value = active.plantNickname || '';
-  document.getElementById('timerStatus').innerText = "locking in on another device! 🌱";
+  document.getElementById('timerStatus').innerText = "locking in on another device!";
 
   triggerExtensionBlocker(true);
 
@@ -749,7 +749,7 @@ window.addEventListener("pageshow", () => {
 
 function triggerExtensionBlocker(start) {
   const mode = localStorage.getItem('blockerMode') || 'blacklist';
-  const rawSites = localStorage.getItem('blockerSites') || 'youtube.com, reddit.com, instagram.com';
+  const rawSites = localStorage.getItem('blockerSites') || 'instagram.com, tiktok.com, youtube.com';
   const sites = rawSites.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
   window.postMessage({
