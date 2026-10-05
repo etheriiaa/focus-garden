@@ -324,7 +324,7 @@ input:focus, textarea:focus {
   padding: 1.8rem;
 }
 
-/* ================= 1. TIMER & INLINE INPUTS ================= */
+/* ================= 1. TIMER ================= */
 .timer-card {
   max-width: 460px;
   margin: 1.5rem auto;
@@ -426,7 +426,7 @@ input:focus, textarea:focus {
   justify-content: center;
 }
 
-/* ================= 2. GARDEN & STATS MODAL ================= */
+/* ================= 2. GARDEN & STATS ================= */
 .garden-toolbar {
   display: flex;
   justify-content: space-between;
@@ -485,7 +485,6 @@ input:focus, textarea:focus {
   color: white;
 }
 
-/* Stats Modal Styling */
 .stats-modal-card {
   max-width: 580px;
   width: 95%;
@@ -560,7 +559,6 @@ input:focus, textarea:focus {
   font-weight: 500;
 }
 
-/* Plant Item & Hover Tooltip */
 .planted-item {
   position: absolute;
   width: 86px;
