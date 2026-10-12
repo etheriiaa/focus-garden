@@ -1516,14 +1516,18 @@ function renderGroupLeaderboardAndGarden(group) {
 function startSundayCountdownTimer() {
   function updateCountdown() {
     const now = new Date();
-    const day = now.getDay();
+    const day = now.getDay(); // 0 is Sunday, 1 is Monday, ..., 6 is Saturday
+
+    // Days remaining until Sunday:
+    // Sunday (0) -> 0 days, Monday (1) -> 6 days, etc.
     const daysUntilSunday = (7 - day) % 7;
 
+    // Target the upcoming Sunday night at 23:59:59 (Monday 00:00:00)
     const nextSundayMidnight = new Date(now);
-    nextSundayMidnight.setDate(now.getDate() + (daysUntilSunday === 0 && now.getHours() === 0 ? 0 : (daysUntilSunday || 7)));
-    nextSundayMidnight.setHours(24, 0, 0, 0);
+    nextSundayMidnight.setDate(now.getDate() + daysUntilSunday + 1);
+    nextSundayMidnight.setHours(0, 0, 0, 0);
 
-    const diff = nextSundayMidnight.getTime() - now.getTime();
+    const diff = Math.max(0, nextSundayMidnight.getTime() - now.getTime());
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const mins = Math.floor((diff / (1000 * 60)) % 60);
 
